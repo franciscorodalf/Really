@@ -23,15 +23,19 @@ import {
 
 // Configure notifications only on native platforms
 if (Platform.OS !== 'web') {
-    Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-            shouldShowBanner: true,
-            shouldShowList: true,
-        }),
-    });
+    try {
+        Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+                shouldShowAlert: true,
+                shouldPlaySound: true,
+                shouldSetBadge: false,
+                shouldShowBanner: true,
+                shouldShowList: true,
+            }),
+        });
+    } catch (error) {
+        console.warn('Error setting notification handler:', error);
+    }
 }
 
 export interface Item {
@@ -139,7 +143,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     useEffect(() => {
-        requestPermissions();
+        const setupNotifications = async () => {
+            try {
+                await requestPermissions();
+                if (Platform.OS === 'android') {
+                    await Notifications.setNotificationChannelAsync('default', {
+                        name: 'default',
+                        importance: Notifications.AndroidImportance.MAX,
+                        vibrationPattern: [0, 250, 250, 250],
+                        lightColor: '#FF231F7C',
+                    });
+                }
+            } catch (error) {
+                console.warn('Error setting up notifications:', error);
+            }
+        };
+        setupNotifications();
     }, []);
 
     const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes') => {
