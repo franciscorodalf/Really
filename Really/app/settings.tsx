@@ -64,18 +64,7 @@ export default function SettingsScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>General</Text>
 
-                    <TouchableOpacity
-                        style={[styles.option, { backgroundColor: optionBg }]}
-                        onPress={() => router.push('/history' as any)}
-                    >
-                        <View style={styles.optionLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: '#E3F2FD' }]}>
-                                <Ionicons name="time" size={20} color="#1565C0" />
-                            </View>
-                            <Text style={[styles.optionText, { color: text }]}>Historial</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-                    </TouchableOpacity>
+
 
                     <View style={[styles.option, { backgroundColor: optionBg }]}>
                         <View style={styles.optionLeft}>

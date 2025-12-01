@@ -14,6 +14,9 @@ export default function AddScreen() {
     const [price, setPrice] = useState('');
     const [duration, setDuration] = useState(30);
     const [unit, setUnit] = useState<'days' | 'minutes'>('days');
+    const [category, setCategory] = useState('Otros');
+
+    const categories = ['Tecnología', 'Ropa', 'Ocio', 'Hogar', 'Otros'];
 
     const isDark = theme === 'dark';
     const bg = isDark ? '#000' : '#fff';
@@ -32,7 +35,7 @@ export default function AddScreen() {
         }
 
         try {
-            await addItem(name, parseFloat(price), duration, unit);
+            await addItem(name, parseFloat(price), duration, unit, category);
             router.back();
         } catch (error) {
             Alert.alert('Error', 'No se pudo guardar el item');
@@ -83,6 +86,31 @@ export default function AddScreen() {
                         onChangeText={setPrice}
                         keyboardType="decimal-pad"
                     />
+                </View>
+
+                <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Categoría</Text>
+                    <View style={styles.categoriesContainer}>
+                        {categories.map((cat) => (
+                            <TouchableOpacity
+                                key={cat}
+                                style={[
+                                    styles.categoryChip,
+                                    {
+                                        backgroundColor: category === cat ? (isDark ? '#fff' : '#000') : (isDark ? '#333' : '#f5f5f5'),
+                                    }
+                                ]}
+                                onPress={() => setCategory(cat)}
+                            >
+                                <Text style={[
+                                    styles.categoryText,
+                                    { color: category === cat ? (isDark ? '#000' : '#fff') : text }
+                                ]}>
+                                    {cat}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -203,5 +231,19 @@ const styles = StyleSheet.create({
     buttonText: {
         fontSize: 18,
         fontWeight: 'bold',
+    },
+    categoriesContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    categoryChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+    },
+    categoryText: {
+        fontSize: 14,
+        fontWeight: '600',
     },
 });

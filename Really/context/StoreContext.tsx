@@ -46,6 +46,8 @@ export interface Item {
     unlockAt: number;
     status: 'waiting' | 'bought' | 'saved';
     image?: string;
+    resolvedAt?: number;
+    category?: string;
 }
 
 export type Theme = 'light' | 'dark';
@@ -57,7 +59,7 @@ interface StoreContextType {
     user: User | null;
     theme: Theme;
     isLoading: boolean;
-    addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes') => Promise<void>;
+    addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes', category?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
     clearAllData: () => Promise<void>;
@@ -161,7 +163,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setupNotifications();
     }, []);
 
-    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes') => {
+    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes', category: string = 'Otros') => {
         if (!user) return;
 
         // Sanitize input
@@ -182,6 +184,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             createdAt: now,
             unlockAt,
             status: 'waiting',
+            category,
         };
 
         // Save to Firestore
@@ -214,11 +217,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const itemRef = doc(db, 'users', user.uid, 'items', id);
         const userRef = doc(db, 'users', user.uid);
 
+        const resolvedAt = Date.now();
+
         if (decision === 'save') {
-            await updateDoc(itemRef, { status: 'saved' });
+            await updateDoc(itemRef, { status: 'saved', resolvedAt });
             await updateDoc(userRef, { moneySaved: moneySaved + item.price });
         } else {
-            await updateDoc(itemRef, { status: 'bought' });
+            await updateDoc(itemRef, { status: 'bought', resolvedAt });
             await updateDoc(userRef, { moneySpent: moneySpent + item.price });
         }
     };

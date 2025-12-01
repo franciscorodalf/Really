@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Item, Theme } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ItemCardProps {
     item: Item;
     onResolve: (id: string, decision: 'buy' | 'save') => void;
+    onDelete?: (id: string) => void;
     theme?: Theme;
 }
 
-export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, theme = 'light' }) => {
+export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, theme = 'light' }) => {
     const [timeLeft, setTimeLeft] = useState<string>('');
     const [isReady, setIsReady] = useState(false);
 
@@ -58,6 +59,20 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, theme = 'li
                 <View style={styles.header}>
                     <Text style={[styles.name, { color: text }]}>{item.name}</Text>
                     <Text style={[styles.price, { color: text }]}>${item.price.toFixed(2)}</Text>
+                    {isWaiting && onDelete && (
+                        <TouchableOpacity onPress={() => {
+                            Alert.alert(
+                                'Eliminar deseo',
+                                '¿Estás seguro de que quieres eliminar este deseo?',
+                                [
+                                    { text: 'Cancelar', style: 'cancel' },
+                                    { text: 'Eliminar', style: 'destructive', onPress: () => onDelete(item.id) }
+                                ]
+                            );
+                        }} style={{ marginLeft: 8 }}>
+                            <Ionicons name="trash-outline" size={20} color={isDark ? '#666' : '#ccc'} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <View style={styles.statusContainer}>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '../context/StoreContext';
 import { ItemCard } from '../components/ItemCard';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,15 +11,32 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function Index() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { items, moneySaved, moneySpent, resolveItem, user, theme, isLoading } = useStore();
+    const { items, moneySaved, moneySpent, resolveItem, deleteItem, user, theme, isLoading } = useStore();
     const [now, setNow] = useState(Date.now());
     const [refreshing, setRefreshing] = useState(false);
+    const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
 
     useEffect(() => {
-        if (!isLoading && !user) {
+        const checkOnboarding = async () => {
+            try {
+                const hasSeen = await AsyncStorage.getItem('hasSeenOnboarding');
+                if (!hasSeen) {
+                    router.replace('/onboarding' as any);
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsCheckingOnboarding(false);
+            }
+        };
+        checkOnboarding();
+    }, []);
+
+    useEffect(() => {
+        if (!isCheckingOnboarding && !isLoading && !user) {
             router.replace('/login');
         }
-    }, [user, isLoading]);
+    }, [user, isLoading, isCheckingOnboarding]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -48,7 +66,7 @@ export default function Index() {
     const text = isDark ? '#fff' : '#000';
     const subText = isDark ? '#ccc' : '#666';
 
-    if (isLoading) {
+    if (isLoading || isCheckingOnboarding) {
         return (
             <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: bg }]}>
                 <ActivityIndicator size="large" color={text} />
@@ -79,7 +97,10 @@ export default function Index() {
                 </View>
 
                 <View style={styles.statsContainer}>
-                    <View style={[styles.summaryCard, { backgroundColor: isDark ? '#333' : '#000', flex: 1, marginRight: 8 }]}>
+                    <TouchableOpacity
+                        style={[styles.summaryCard, { backgroundColor: isDark ? '#333' : '#000', flex: 1, marginRight: 8 }]}
+                        onPress={() => router.push('/stats?type=saved' as any)}
+                    >
                         <View style={[styles.summaryIconContainer, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
                             <Ionicons name="wallet-outline" size={24} color="#fff" />
                         </View>
@@ -87,9 +108,12 @@ export default function Index() {
                             <Text style={styles.summaryLabel}>Ahorrado</Text>
                             <Text style={styles.summaryAmount}>${moneySaved.toFixed(0)}</Text>
                         </View>
-                    </View>
+                    </TouchableOpacity>
 
-                    <View style={[styles.summaryCard, { backgroundColor: isDark ? '#333' : '#fff', flex: 1, marginLeft: 8, borderWidth: isDark ? 0 : 1, borderColor: '#eee' }]}>
+                    <TouchableOpacity
+                        style={[styles.summaryCard, { backgroundColor: isDark ? '#333' : '#fff', flex: 1, marginLeft: 8, borderWidth: isDark ? 0 : 1, borderColor: '#eee' }]}
+                        onPress={() => router.push('/stats?type=spent' as any)}
+                    >
                         <View style={[styles.summaryIconContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#f5f5f5' }]}>
                             <Ionicons name="cart-outline" size={24} color={isDark ? '#fff' : '#000'} />
                         </View>
@@ -97,7 +121,7 @@ export default function Index() {
                             <Text style={[styles.summaryLabel, { color: isDark ? 'rgba(255,255,255,0.7)' : '#666' }]}>Gastado</Text>
                             <Text style={[styles.summaryAmount, { color: isDark ? '#fff' : '#000' }]}>${moneySpent.toFixed(0)}</Text>
                         </View>
-                    </View>
+                    </TouchableOpacity>
                 </View>
 
                 {readyItems.length > 0 && (
@@ -107,7 +131,7 @@ export default function Index() {
                             <Text style={[styles.sectionTitle, { color: text }]}>Listos para decidir</Text>
                         </View>
                         {readyItems.map((item) => (
-                            <ItemCard key={item.id} item={item} onResolve={resolveItem} theme={theme} />
+                            <ItemCard key={item.id} item={item} onResolve={resolveItem} onDelete={deleteItem} theme={theme} />
                         ))}
                     </View>
                 )}
@@ -119,7 +143,7 @@ export default function Index() {
                             <Text style={[styles.sectionTitle, { color: subText }]}>Pensándolo...</Text>
                         </View>
                         {waitingItems.map((item) => (
-                            <ItemCard key={item.id} item={item} onResolve={resolveItem} theme={theme} />
+                            <ItemCard key={item.id} item={item} onResolve={resolveItem} onDelete={deleteItem} theme={theme} />
                         ))}
                     </View>
                 )}
