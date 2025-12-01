@@ -57,7 +57,12 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
         <View style={[styles.card, { backgroundColor: bg }, isReady && isWaiting && { borderColor: readyBorder, borderWidth: 2 }]}>
             <View style={styles.content}>
                 <View style={styles.header}>
-                    <Text style={[styles.name, { color: text }]}>{item.name}</Text>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text style={[styles.name, { color: text }]}>{item.name}</Text>
+                        <Text style={[styles.date, { color: isDark ? '#666' : '#999' }]}>
+                            {new Date(item.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                    </View>
                     <Text style={[styles.price, { color: text }]}>${item.price.toFixed(2)}</Text>
                     {isWaiting && onDelete && (
                         <TouchableOpacity onPress={() => {
@@ -139,8 +144,10 @@ const styles = StyleSheet.create({
     name: {
         fontSize: 18,
         fontWeight: '600',
-        flex: 1,
-        marginRight: 12,
+    },
+    date: {
+        fontSize: 12,
+        marginTop: 2,
     },
     price: {
         fontSize: 18,

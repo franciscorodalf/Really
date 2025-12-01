@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
+import * as Clipboard from 'expo-clipboard';
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -44,6 +45,13 @@ export default function SettingsScreen() {
         }
     };
 
+    const copySupportId = async () => {
+        if (!user) return;
+        const shortId = `#${user.uid.slice(-6).toUpperCase()}`;
+        await Clipboard.setStringAsync(shortId);
+        Alert.alert('Copiado', `ID de soporte ${shortId} copiado al portapapeles`);
+    };
+
     return (
         <View style={[styles.container, { backgroundColor: bg }]}>
             <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -59,6 +67,11 @@ export default function SettingsScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Cuenta</Text>
                     <Text style={[styles.emailText, { color: isDark ? '#999' : '#666' }]}>{user?.email}</Text>
+                    <TouchableOpacity onPress={copySupportId} style={styles.supportIdContainer}>
+                        <Text style={[styles.supportIdLabel, { color: isDark ? '#666' : '#999' }]}>ID de Soporte: </Text>
+                        <Text style={[styles.supportIdValue, { color: text }]}>#{user?.uid.slice(-6).toUpperCase()}</Text>
+                        <Ionicons name="copy-outline" size={14} color={isDark ? '#666' : '#999'} style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
                 </View>
 
                 <View style={styles.section}>
@@ -202,5 +215,20 @@ const styles = StyleSheet.create({
         color: '#ccc',
         fontSize: 12,
         marginTop: 4,
+    },
+    supportIdContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 4,
+        marginTop: 4,
+    },
+    supportIdLabel: {
+        fontSize: 12,
+        fontWeight: '500',
+    },
+    supportIdValue: {
+        fontSize: 12,
+        fontWeight: '700',
+        fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     },
 });

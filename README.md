@@ -13,42 +13,54 @@
   <img src="./Really/assets/images/showcase.png" alt="Really App Showcase" width="100%" style="border-radius: 16px; margin: 2rem 0;" />
 </div>
 
-Una aplicación minimalista y estética para evitar compras impulsivas.
+Una aplicación minimalista y estética diseñada para combatir las compras impulsivas mediante la psicología de la "espera obligatoria".
 
-## Concepto
+## 💡 Concepto
 
 Cuando quieras comprar algo, regístralo en **Really**. La app iniciará una cuenta regresiva (tú decides cuánto tiempo, desde minutos hasta días). Al finalizar, te preguntará: "¿Realmente lo quieres?".
 
 - Si la respuesta es **NO**: El precio se suma a tu "Dinero Ahorrado".
 - Si la respuesta es **SÍ**: Se marca como comprado y se suma a "Dinero Gastado".
 
-## Características
+## ✨ Características Principales
 
-### 🎨 Diseño & Experiencia
-- **Diseño Aesthetic**: Interfaz limpia, moderna y minimalista.
-- **Tema Oscuro/Claro**: Se adapta automáticamente a tu preferencia o puedes cambiarlo manualmente.
-- **Animaciones**: Transiciones suaves y feedback visual.
+### 🚀 Experiencia de Usuario (UX)
+- **Onboarding Interactivo**: Guía de bienvenida para nuevos usuarios explicando la filosofía "Añadir -> Esperar -> Decidir".
+- **Diseño Premium**: Interfaz limpia con soporte nativo para **Modo Oscuro/Claro**.
+- **Gestión Intuitiva**:
+    - Borrado de ítems erróneos directamente desde la tarjeta.
+    - Acceso rápido al historial desde la pantalla principal.
+    - Fecha y hora exacta de creación en cada deseo.
 
-### ⚡ Funcionalidad
-- **Temporizador Flexible**: Elige esperar desde 1 minuto hasta 60 días.
-- **Historial**: Revisa todas tus decisiones pasadas (compras y ahorros).
-- **Estadísticas**: Visualiza cuánto has ahorrado y cuánto has gastado.
-- **Notificaciones**: Te avisamos cuando es hora de decidir.
+### 📊 Análisis Financiero Avanzado
+- **Calendario de Actividad**: Visualiza tus días de gasto vs. ahorro con un calendario interactivo.
+- **Estadísticas Detalladas**:
+    - Gráficos de barras comparativos.
+    - **Récords**: Descubre cuál ha sido tu mayor ahorro y tu mayor gasto.
+    - **Promedios**: Analiza tu comportamiento medio por ítem.
+- **Categorías**: Organiza tus deseos por categorías (Tecnología, Ropa, Ocio, Hogar, etc.) y ve el desglose financiero de cada una.
+- **Navegación Fluida**: Pestañas para alternar instantáneamente entre vistas de "Ahorrado" y "Gastado".
 
-### ☁️ Nube & Seguridad (Firebase)
-- **Sincronización**: Tus datos se guardan en la nube (Firestore), accesibles desde cualquier dispositivo.
-- **Autenticación Segura**: Registro y Login con Email/Contraseña.
-- **Seguridad**:
-    - Requisitos de contraseña fuerte (Mínimo 8 caracteres, mayúscula, número, símbolo).
-    - Protección contra inyección de código en todos los campos de texto.
+### 🛡️ Soporte y Seguridad
+- **ID de Soporte Único**: Generación de un código de soporte basado en el UID para facilitar la asistencia técnica sin comprometer datos sensibles.
+- **Copia al Portapapeles**: Facilidad para compartir el ID de soporte.
 
-## Tecnologías
+### ☁️ Nube & Tecnología
+- **Sincronización en Tiempo Real**: Datos guardados en Firestore.
+- **Notificaciones Locales**: Avisos cuando un deseo está listo para ser decidido.
+- **Autenticación Robusta**: Login seguro con validación de contraseñas fuertes.
 
-- **Frontend**: React Native con Expo (Managed Workflow), TypeScript, Expo Router.
+## 🛠️ Tecnologías
+
+- **Core**: React Native, Expo (Managed Workflow), TypeScript.
+- **Navegación**: Expo Router v3.
 - **Backend**: Firebase (Auth & Firestore).
-- **Estado**: Context API.
+- **Componentes Clave**:
+    - `react-native-calendars`: Para la visualización de actividad.
+    - `expo-clipboard`: Para funcionalidades de soporte.
+    - `@react-native-async-storage`: Para persistencia local de preferencias (Onboarding).
 
-## Cómo empezar
+## 🚀 Cómo empezar
 
 1.  Instala las dependencias:
     ```bash
@@ -62,9 +74,9 @@ Cuando quieras comprar algo, regístralo en **Really**. La app iniciará una cue
 
 3.  Escanea el código QR con tu móvil (usando Expo Go) o ejecuta en un simulador.
 
-## Estructura del Proyecto
+## 📂 Estructura del Proyecto
 
-- `app/`: Pantallas y navegación (Expo Router).
-- `components/`: Componentes reutilizables (ItemCard, etc.).
-- `context/`: Lógica de estado global y conexión con Firebase.
-- `firebaseConfig.ts`: Configuración de Firebase.
+- `app/`: Pantallas y rutas (incluye `stats.tsx`, `onboarding.tsx`, `history.tsx`).
+- `components/`: Componentes UI reutilizables (`ItemCard`).
+- `context/`: Estado global (`StoreContext`) y lógica de negocio.
+- `assets/`: Imágenes e iconos personalizados.

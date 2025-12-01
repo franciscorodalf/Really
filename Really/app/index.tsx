@@ -91,9 +91,14 @@ export default function Index() {
                         <Text style={[styles.greeting, { color: subText }]}>Hola, {user.email?.split('@')[0]}</Text>
                         <Text style={[styles.headerTitle, { color: text }]}>Mis Deseos</Text>
                     </View>
-                    <TouchableOpacity onPress={() => router.push('/settings' as any)} style={styles.settingsButton}>
-                        <Ionicons name="settings-outline" size={24} color={text} />
-                    </TouchableOpacity>
+                    <View style={styles.headerButtons}>
+                        <TouchableOpacity onPress={() => router.push('/history' as any)} style={styles.iconButton}>
+                            <Ionicons name="time-outline" size={24} color={text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => router.push('/settings' as any)} style={styles.iconButton}>
+                            <Ionicons name="settings-outline" size={24} color={text} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 <View style={styles.statsContainer}>
@@ -193,9 +198,12 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         letterSpacing: -1,
     },
-    settingsButton: {
+    headerButtons: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    iconButton: {
         padding: 8,
-        marginRight: -8,
     },
     statsContainer: {
         flexDirection: 'row',
