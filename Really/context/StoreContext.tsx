@@ -1,5 +1,16 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+let Notifications: any;
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+// Only require expo-notifications if NOT in Expo Go on Android
+if (Platform.OS !== 'android' || !isExpoGo) {
+    try {
+        Notifications = require('expo-notifications');
+    } catch (error) {
+        console.warn('expo-notifications not available:', error);
+    }
+}
 import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
@@ -22,7 +33,7 @@ import {
 } from 'firebase/firestore';
 
 // Configure notifications only on native platforms
-if (Platform.OS !== 'web') {
+if (Platform.OS !== 'web' && Notifications) {
     try {
         Notifications.setNotificationHandler({
             handleNotification: async () => ({
@@ -137,7 +148,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [user]);
 
     const requestPermissions = async () => {
-        if (Platform.OS === 'web') return;
+        if (Platform.OS === 'web' || !Notifications) return;
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') {
             console.log('Notification permissions not granted');
@@ -148,7 +159,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const setupNotifications = async () => {
             try {
                 await requestPermissions();
-                if (Platform.OS === 'android') {
+                if (Platform.OS === 'android' && Notifications) {
                     await Notifications.setNotificationChannelAsync('default', {
                         name: 'default',
                         importance: Notifications.AndroidImportance.MAX,
@@ -192,7 +203,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await setDoc(itemRef, newItem);
 
         // Schedule notification
-        if (Platform.OS !== 'web') {
+        if (Platform.OS !== 'web' && Notifications) {
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title: "¡Tiempo cumplido!",
