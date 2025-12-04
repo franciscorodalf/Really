@@ -10,7 +10,12 @@
 </div>
 
 <div align="center">
-  <img src="./Really/assets/images/showcase.png" alt="Really App Showcase" width="100%" style="border-radius: 16px; margin: 2rem 0;" />
+  <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">
+    <img src="./Really/assets/images/paginaInicial.png" alt="Página Inicial" width="22%" style="border-radius: 16px;" />
+    <img src="./Really/assets/images/NuevoDeseo.png" alt="Nuevo Deseo" width="22%" style="border-radius: 16px;" />
+    <img src="./Really/assets/images/Logros.png" alt="Logros" width="22%" style="border-radius: 16px;" />
+    <img src="./Really/assets/images/Ajustes.png" alt="Ajustes" width="22%" style="border-radius: 16px;" />
+  </div>
 </div>
 
 Una aplicación minimalista y estética diseñada para combatir las compras impulsivas mediante la psicología de la "espera obligatoria".
@@ -38,8 +43,13 @@ Cuando quieras comprar algo, regístralo en **Really**. La app iniciará una cue
     - Gráficos de barras comparativos.
     - **Récords**: Descubre cuál ha sido tu mayor ahorro y tu mayor gasto.
     - **Promedios**: Analiza tu comportamiento medio por ítem.
-- **Categorías**: Organiza tus deseos por categorías (Tecnología, Ropa, Ocio, Hogar, etc.) y ve el desglose financiero de cada una.
+- **Categorías Visuales**: Organiza tus deseos con iconos y colores personalizados.
 - **Navegación Fluida**: Pestañas para alternar instantáneamente entre vistas de "Ahorrado" y "Gastado".
+
+### 🏆 Gamificación y Metas
+- **Metas de Ahorro**: Crea objetivos personalizados (ej. "Viaje a Japón") y asigna tus ahorros disponibles para ver tu progreso.
+- **Sistema de Logros**: Desbloquea medallas y títulos (como "Coleccionista" o "Leyenda") a medida que ahorras más dinero y deseos.
+- **Feedback Visual**: Barras de progreso animadas y celebraciones al desbloquear logros.
 
 ### 🛡️ Soporte y Seguridad
 - **ID de Soporte Único**: Generación de un código de soporte basado en el UID para facilitar la asistencia técnica sin comprometer datos sensibles.
