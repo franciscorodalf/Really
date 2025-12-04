@@ -57,6 +57,9 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
         <View style={[styles.card, { backgroundColor: bg }, isReady && isWaiting && { borderColor: readyBorder, borderWidth: 2 }]}>
             <View style={styles.content}>
                 <View style={styles.header}>
+                    <View style={[styles.iconContainer, { backgroundColor: item.categoryColor ? item.categoryColor + '20' : '#eee' }]}>
+                        <Ionicons name={item.categoryIcon as any || 'pricetag-outline'} size={24} color={item.categoryColor || '#666'} />
+                    </View>
                     <View style={{ flex: 1, marginRight: 12 }}>
                         <Text style={[styles.name, { color: text }]}>{item.name}</Text>
                         <Text style={[styles.date, { color: isDark ? '#666' : '#999' }]}>
@@ -140,6 +143,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
+    },
+    iconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
     },
     name: {
         fontSize: 18,

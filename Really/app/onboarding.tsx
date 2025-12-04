@@ -1,48 +1,93 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Dimensions, TouchableOpacity, Platform, SafeAreaView } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import Animated, { FadeInDown, FadeOutLeft, useAnimatedScrollHandler, useSharedValue, useAnimatedStyle, interpolate, Extrapolation, SharedValue } from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
 
 const SLIDES = [
     {
         id: '1',
-        title: 'Añade tu deseo',
-        description: 'Evita la compra impulsiva registrando lo que quieres en el momento.',
-        icon: 'add-circle-outline' as const,
-        color: '#4CAF50'
+        title: 'Domina tus\nImpulsos',
+        description: 'Registra lo que quieres comprar y dale un tiempo de espera. La mayoría de los deseos desaparecen solos.',
+        icon: 'shield-checkmark-outline' as const,
+        color: '#000000'
     },
     {
         id: '2',
-        title: 'Espera un tiempo',
-        description: 'Deja que pase el tiempo de enfriamiento para ver si realmente lo necesitas.',
-        icon: 'hourglass-outline' as const,
-        color: '#2196F3'
+        title: 'Ahorra con\nPropósito',
+        description: 'Convierte esas compras evitadas en ahorros reales para lo que verdaderamente importa.',
+        icon: 'trending-up-outline' as const,
+        color: '#000000'
     },
     {
         id: '3',
-        title: 'Decide con claridad',
-        description: '¿Sigues queriéndolo? Cómpralo. ¿Ya no? Ahórralo y mira crecer tu capital.',
-        icon: 'checkmark-circle-outline' as const,
-        color: '#9C27B0'
+        title: 'Visualiza tu\nProgreso',
+        description: 'Observa cómo crece tu patrimonio y desbloquea logros por tu disciplina financiera.',
+        icon: 'trophy-outline' as const,
+        color: '#000000'
     }
 ];
+
+const Slide = ({ item, index, scrollX }: { item: typeof SLIDES[0], index: number, scrollX: SharedValue<number> }) => {
+    const rnStyle = useAnimatedStyle(() => {
+        const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+
+        const scale = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.8, 1, 0.8],
+            Extrapolation.CLAMP
+        );
+
+        const opacity = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.5, 1, 0.5],
+            Extrapolation.CLAMP
+        );
+
+        return {
+            transform: [{ scale }],
+            opacity,
+        };
+    });
+
+    return (
+        <View style={styles.slide}>
+            <Animated.View style={[styles.slideContent, rnStyle]}>
+                <View style={styles.iconContainer}>
+                    <Ionicons name={item.icon} size={80} color="#fff" />
+                </View>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.description}>{item.description}</Text>
+            </Animated.View>
+        </View>
+    );
+};
 
 export default function OnboardingScreen() {
     const router = useRouter();
     const [currentIndex, setCurrentIndex] = useState(0);
-    const flatListRef = useRef<FlatList>(null);
+    const flatListRef = useRef<Animated.FlatList<any>>(null);
+    const scrollX = useSharedValue(0);
+
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            scrollX.value = event.contentOffset.x;
+        },
+    });
 
     const handleFinish = async () => {
         try {
             await AsyncStorage.setItem('hasSeenOnboarding', 'true');
-            router.replace('/');
+            router.replace('/login'); // Redirect to login after onboarding
         } catch (error) {
             console.error('Error saving onboarding status:', error);
-            router.replace('/');
+            router.replace('/login');
         }
     };
 
@@ -52,59 +97,83 @@ export default function OnboardingScreen() {
                 index: currentIndex + 1,
                 animated: true
             });
+            setCurrentIndex(currentIndex + 1);
         } else {
             handleFinish();
         }
     };
 
-    const renderItem = ({ item }: { item: typeof SLIDES[0] }) => (
-        <View style={styles.slide}>
-            <View style={[styles.iconContainer, { backgroundColor: item.color + '20' }]}>
-                <Ionicons name={item.icon} size={100} color={item.color} />
-            </View>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.description}>{item.description}</Text>
-        </View>
-    );
+    const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+        if (viewableItems.length > 0) {
+            setCurrentIndex(viewableItems[0].index || 0);
+        }
+    }).current;
 
     return (
         <View style={styles.container}>
             <Stack.Screen options={{ headerShown: false }} />
-            <StatusBar style="dark" />
-            <FlatList
+            <StatusBar style="light" />
+
+            <Animated.FlatList
                 ref={flatListRef}
                 data={SLIDES}
-                renderItem={renderItem}
+                renderItem={({ item, index }) => <Slide item={item} index={index} scrollX={scrollX} />}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(event) => {
-                    const index = Math.round(event.nativeEvent.contentOffset.x / width);
-                    setCurrentIndex(index);
-                }}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
                 keyExtractor={(item) => item.id}
+                style={styles.list}
             />
 
             <View style={styles.footer}>
                 <View style={styles.pagination}>
-                    {SLIDES.map((_, index) => (
-                        <View
-                            key={index}
-                            style={[
-                                styles.dot,
-                                currentIndex === index && styles.activeDot
-                            ]}
-                        />
-                    ))}
+                    {SLIDES.map((_, index) => {
+                        const animatedDotStyle = useAnimatedStyle(() => {
+                            const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+                            const widthDot = interpolate(
+                                scrollX.value,
+                                inputRange,
+                                [8, 24, 8],
+                                Extrapolation.CLAMP
+                            );
+                            const opacity = interpolate(
+                                scrollX.value,
+                                inputRange,
+                                [0.5, 1, 0.5],
+                                Extrapolation.CLAMP
+                            );
+                            return {
+                                width: widthDot,
+                                opacity,
+                            };
+                        });
+
+                        return (
+                            <Animated.View
+                                key={index}
+                                style={[styles.dot, animatedDotStyle]}
+                            />
+                        );
+                    })}
                 </View>
 
                 <TouchableOpacity
                     style={styles.button}
                     onPress={handleNext}
+                    activeOpacity={0.8}
                 >
                     <Text style={styles.buttonText}>
-                        {currentIndex === SLIDES.length - 1 ? 'Comenzar' : 'Siguiente'}
+                        {currentIndex === SLIDES.length - 1 ? 'Empezar' : 'Siguiente'}
                     </Text>
+                    <Ionicons
+                        name={currentIndex === SLIDES.length - 1 ? "checkmark" : "arrow-forward"}
+                        size={20}
+                        color="#000"
+                    />
                 </TouchableOpacity>
             </View>
         </View>
@@ -114,72 +183,81 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#000',
+    },
+    list: {
+        flex: 1,
     },
     slide: {
         width,
-        height: height * 0.75,
+        height: height,
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 40,
+        paddingHorizontal: 40,
+    },
+    slideContent: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
     },
     iconContainer: {
-        width: 200,
-        height: 200,
-        borderRadius: 100,
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#1a1a1a',
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 40,
+        borderWidth: 1,
+        borderColor: '#333',
     },
     title: {
-        fontSize: 32,
+        fontSize: 42,
         fontWeight: '800',
-        marginBottom: 16,
+        marginBottom: 20,
         textAlign: 'center',
-        color: '#000',
+        color: '#fff',
         letterSpacing: -1,
+        lineHeight: 48,
     },
     description: {
         fontSize: 18,
         textAlign: 'center',
-        color: '#666',
+        color: '#888',
         lineHeight: 28,
+        maxWidth: '90%',
     },
     footer: {
-        height: height * 0.25,
-        justifyContent: 'space-between',
+        position: 'absolute',
+        bottom: 50,
+        left: 0,
+        right: 0,
         paddingHorizontal: 40,
-        paddingBottom: 60,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     pagination: {
         flexDirection: 'row',
-        justifyContent: 'center',
         gap: 8,
     },
     dot: {
-        width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: '#eee',
-    },
-    activeDot: {
-        backgroundColor: '#000',
-        width: 24,
+        backgroundColor: '#fff',
     },
     button: {
-        backgroundColor: '#000',
-        paddingVertical: 20,
-        borderRadius: 30,
+        backgroundColor: '#fff',
+        paddingVertical: 16,
+        paddingHorizontal: 32,
+        borderRadius: 100,
+        flexDirection: 'row',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 4,
+        gap: 8,
     },
     buttonText: {
-        color: '#fff',
-        fontSize: 18,
+        color: '#000',
+        fontSize: 16,
         fontWeight: '700',
     },
 });

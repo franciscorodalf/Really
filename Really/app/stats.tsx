@@ -100,14 +100,19 @@ export default function StatsScreen() {
         const avgSpent = allSpentItems.length > 0 ? totalSpent / allSpentItems.length : 0;
 
         // Desglose por categorías
-        const categoryStats: Record<string, { saved: number, spent: number }> = {};
+        const categoryStats: Record<string, { saved: number, spent: number, color?: string, icon?: string }> = {};
 
         items.forEach(item => {
             if (item.status !== 'saved' && item.status !== 'bought') return;
 
             const cat = item.category || 'Otros';
             if (!categoryStats[cat]) {
-                categoryStats[cat] = { saved: 0, spent: 0 };
+                categoryStats[cat] = {
+                    saved: 0,
+                    spent: 0,
+                    color: item.categoryColor,
+                    icon: item.categoryIcon
+                };
             }
 
             if (item.status === 'saved') {
@@ -320,7 +325,16 @@ export default function StatsScreen() {
                                         { borderBottomColor: isDark ? '#333' : '#eee', borderBottomWidth: index === advancedStats.categories.length - 1 ? 0 : 1 }
                                     ]}>
                                         <View style={styles.categoryHeader}>
-                                            <Text style={[styles.categoryName, { color: text }]}>{cat.name}</Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <View style={{
+                                                    width: 32, height: 32, borderRadius: 16,
+                                                    backgroundColor: (cat.color || '#999') + '20',
+                                                    alignItems: 'center', justifyContent: 'center'
+                                                }}>
+                                                    <Ionicons name={cat.icon as any || 'pricetag'} size={16} color={cat.color || text} />
+                                                </View>
+                                                <Text style={[styles.categoryName, { color: text }]}>{cat.name}</Text>
+                                            </View>
                                             <Text style={[styles.categoryTotal, { color: text }]}>${cat.total}</Text>
                                         </View>
                                         <View style={styles.miniBarContainer}>

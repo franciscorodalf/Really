@@ -12,7 +12,7 @@ if (Platform.OS !== 'android' || !isExpoGo) {
     }
 }
 import * as SplashScreen from 'expo-splash-screen';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import { auth, db } from '../firebaseConfig';
 import {
     onAuthStateChanged,
@@ -59,18 +59,50 @@ export interface Item {
     image?: string;
     resolvedAt?: number;
     category?: string;
+    categoryIcon?: string;
+    categoryColor?: string;
 }
+
+export interface Goal {
+    id: string;
+    name: string;
+    targetAmount: number;
+    currentAmount: number;
+    icon: string;
+    color: string;
+    createdAt: number;
+}
+
+export interface Achievement {
+    id: string;
+    title: string;
+    description: string;
+    icon: string;
+}
+
+export const ACHIEVEMENTS: Achievement[] = [
+    { id: 'first_save', title: 'Primer Ahorro', description: 'Has ahorrado tu primer deseo', icon: 'star' },
+    { id: 'saver_10', title: 'Coleccionista', description: 'Has ahorrado 10 deseos', icon: 'library' },
+    { id: 'saver_100', title: 'Ahorrador Novato', description: 'Has ahorrado más de $100', icon: 'wallet' },
+    { id: 'saver_200', title: 'Buen Comienzo', description: 'Has ahorrado más de $200', icon: 'trending-up' },
+    { id: 'saver_1000', title: 'Gran Ahorrador', description: 'Has ahorrado más de $1000', icon: 'trophy' },
+    { id: 'saver_2000', title: 'Experto', description: 'Has ahorrado más de $2000', icon: 'ribbon' },
+    { id: 'saver_5000', title: 'Magnate', description: 'Has ahorrado más de $5000', icon: 'diamond' },
+    { id: 'saver_10000', title: 'Leyenda', description: 'Has ahorrado más de $10000', icon: 'ribbon' },
+];
 
 export type Theme = 'light' | 'dark';
 
 interface StoreContextType {
     items: Item[];
+    goals: Goal[];
+    userAchievements: string[];
     moneySaved: number;
     moneySpent: number;
     user: User | null;
     theme: Theme;
     isLoading: boolean;
-    addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes', category?: string) => Promise<void>;
+    addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
     clearAllData: () => Promise<void>;
@@ -78,6 +110,9 @@ interface StoreContextType {
     signUp: (email: string, pass: string) => Promise<void>;
     signOut: () => Promise<void>;
     toggleTheme: () => Promise<void>;
+    addGoal: (name: string, targetAmount: number, icon: string, color: string) => Promise<void>;
+    deleteGoal: (id: string) => Promise<void>;
+    allocateSavings: (goalId: string, amount: number) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -92,6 +127,8 @@ export const useStore = () => {
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [items, setItems] = useState<Item[]>([]);
+    const [goals, setGoals] = useState<Goal[]>([]);
+    const [userAchievements, setUserAchievements] = useState<string[]>([]);
     const [moneySaved, setMoneySaved] = useState(0);
     const [moneySpent, setMoneySpent] = useState(0);
     const [user, setUser] = useState<User | null>(null);
@@ -110,6 +147,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => {
         if (!user) {
             setItems([]);
+            setGoals([]);
             setMoneySaved(0);
             setMoneySpent(0);
             return;
@@ -124,9 +162,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setMoneySaved(data.moneySaved || 0);
                 setMoneySpent(data.moneySpent || 0);
                 setTheme(data.theme || 'light');
+                setUserAchievements(data.achievements || []);
+
+                // Ensure supportId is saved
+                if (!data.supportId) {
+                    const supportId = user.uid.slice(-6).toUpperCase();
+                    updateDoc(userDocRef, { supportId });
+                }
             } else {
                 // Initialize user doc if not exists
-                setDoc(userDocRef, { moneySaved: 0, moneySpent: 0, theme: 'light' }, { merge: true });
+                const supportId = user.uid.slice(-6).toUpperCase();
+                setDoc(userDocRef, { moneySaved: 0, moneySpent: 0, theme: 'light', supportId }, { merge: true });
             }
         });
 
@@ -141,9 +187,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setItems(loadedItems);
         });
 
+        // Listen to goals subcollection
+        const goalsRef = collection(userDocRef, 'goals');
+        const qGoals = query(goalsRef, orderBy('createdAt', 'desc'));
+        const unsubscribeGoals = onSnapshot(qGoals, (snapshot) => {
+            const loadedGoals: Goal[] = [];
+            snapshot.forEach((doc) => {
+                loadedGoals.push(doc.data() as Goal);
+            });
+            setGoals(loadedGoals);
+        });
+
         return () => {
             unsubscribeUser();
             unsubscribeItems();
+            unsubscribeGoals();
         };
     }, [user]);
 
@@ -174,7 +232,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setupNotifications();
     }, []);
 
-    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes', category: string = 'Otros') => {
+    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
         if (!user) return;
 
         // Sanitize input
@@ -196,6 +254,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             unlockAt,
             status: 'waiting',
             category,
+            categoryIcon,
+            categoryColor,
         };
 
         // Save to Firestore
@@ -231,8 +291,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const resolvedAt = Date.now();
 
         if (decision === 'save') {
+            const newSaved = moneySaved + item.price;
             await updateDoc(itemRef, { status: 'saved', resolvedAt });
-            await updateDoc(userRef, { moneySaved: moneySaved + item.price });
+
+            // Check achievements
+            const newAchievements = [...userAchievements];
+            const earned: string[] = [];
+
+            // Calculate total saved items count (including this one)
+            const savedCount = items.filter(i => i.status === 'saved').length + 1;
+
+            if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); earned.push('Primer Ahorro'); }
+            if (savedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); earned.push('Coleccionista'); }
+
+            if (newSaved >= 100 && !newAchievements.includes('saver_100')) { newAchievements.push('saver_100'); earned.push('Ahorrador Novato'); }
+            if (newSaved >= 200 && !newAchievements.includes('saver_200')) { newAchievements.push('saver_200'); earned.push('Buen Comienzo'); }
+            if (newSaved >= 1000 && !newAchievements.includes('saver_1000')) { newAchievements.push('saver_1000'); earned.push('Gran Ahorrador'); }
+            if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); earned.push('Experto'); }
+            if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); earned.push('Magnate'); }
+            if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); earned.push('Leyenda'); }
+
+            if (earned.length > 0) {
+                Alert.alert(
+                    '¡Logro Desbloqueado!',
+                    `Has conseguido: ${earned.join(', ')}`,
+                    [{ text: 'Genial' }]
+                );
+            }
+
+            await updateDoc(userRef, { moneySaved: newSaved, achievements: newAchievements });
         } else {
             await updateDoc(itemRef, { status: 'bought', resolvedAt });
             await updateDoc(userRef, { moneySpent: moneySpent + item.price });
@@ -265,6 +352,43 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setTheme(newTheme);
     };
 
+    const addGoal = async (name: string, targetAmount: number, icon: string, color: string) => {
+        if (!user) return;
+        const newGoal: Goal = {
+            id: Math.random().toString(36).substr(2, 9),
+            name,
+            targetAmount,
+            currentAmount: 0,
+            icon,
+            color,
+            createdAt: Date.now(),
+        };
+        await setDoc(doc(db, 'users', user.uid, 'goals', newGoal.id), newGoal);
+    };
+
+    const deleteGoal = async (id: string) => {
+        if (!user) return;
+        await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
+    };
+
+    const allocateSavings = async (goalId: string, amount: number) => {
+        if (!user) return;
+        const goalRef = doc(db, 'users', user.uid, 'goals', goalId);
+        const userRef = doc(db, 'users', user.uid);
+
+        // Transaction would be better, but keeping it simple
+        const goal = goals.find(g => g.id === goalId);
+        if (!goal) return;
+
+        if (moneySaved < amount) {
+            // Not enough savings
+            return;
+        }
+
+        await updateDoc(goalRef, { currentAmount: goal.currentAmount + amount });
+        await updateDoc(userRef, { moneySaved: moneySaved - amount });
+    };
+
     const signIn = async (email: string, pass: string) => {
         await signInWithEmailAndPassword(auth, email, pass);
     };
@@ -292,7 +416,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             signIn,
             signUp,
             signOut,
-            toggleTheme
+            toggleTheme,
+            goals,
+            userAchievements,
+            addGoal,
+            deleteGoal,
+            allocateSavings
         }}>
             {children}
         </StoreContext.Provider>

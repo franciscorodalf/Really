@@ -15,8 +15,18 @@ export default function AddScreen() {
     const [duration, setDuration] = useState(30);
     const [unit, setUnit] = useState<'days' | 'minutes'>('days');
     const [category, setCategory] = useState('Otros');
+    const [categoryIcon, setCategoryIcon] = useState('pricetag-outline');
+    const [categoryColor, setCategoryColor] = useState('#9E9E9E');
 
-    const categories = ['Tecnología', 'Ropa', 'Ocio', 'Hogar', 'Otros'];
+    const CATEGORIES = [
+        { name: 'Tecnología', icon: 'laptop-outline', color: '#2196F3' },
+        { name: 'Ropa', icon: 'shirt-outline', color: '#E91E63' },
+        { name: 'Hogar', icon: 'home-outline', color: '#4CAF50' },
+        { name: 'Ocio', icon: 'game-controller-outline', color: '#FFC107' },
+        { name: 'Comida', icon: 'restaurant-outline', color: '#FF5722' },
+        { name: 'Viajes', icon: 'airplane-outline', color: '#00BCD4' },
+        { name: 'Otros', icon: 'pricetag-outline', color: '#9E9E9E' },
+    ];
 
     const isDark = theme === 'dark';
     const bg = isDark ? '#000' : '#fff';
@@ -35,7 +45,7 @@ export default function AddScreen() {
         }
 
         try {
-            await addItem(name, parseFloat(price), duration, unit, category);
+            await addItem(name, parseFloat(price), duration, unit, category, categoryIcon, categoryColor);
             router.back();
         } catch (error) {
             Alert.alert('Error', 'No se pudo guardar el item');
@@ -99,22 +109,29 @@ export default function AddScreen() {
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>Categoría</Text>
                             <View style={styles.categoriesContainer}>
-                                {categories.map((cat) => (
+                                {CATEGORIES.map((cat) => (
                                     <TouchableOpacity
-                                        key={cat}
+                                        key={cat.name}
                                         style={[
                                             styles.categoryChip,
                                             {
-                                                backgroundColor: category === cat ? (isDark ? '#fff' : '#000') : (isDark ? '#333' : '#f5f5f5'),
+                                                backgroundColor: category === cat.name ? cat.color + '20' : (isDark ? '#333' : '#f5f5f5'),
+                                                borderColor: category === cat.name ? cat.color : 'transparent',
+                                                borderWidth: 1,
                                             }
                                         ]}
-                                        onPress={() => setCategory(cat)}
+                                        onPress={() => {
+                                            setCategory(cat.name);
+                                            setCategoryIcon(cat.icon);
+                                            setCategoryColor(cat.color);
+                                        }}
                                     >
+                                        <Ionicons name={cat.icon as any} size={18} color={category === cat.name ? cat.color : text} style={{ marginRight: 6 }} />
                                         <Text style={[
                                             styles.categoryText,
-                                            { color: category === cat ? (isDark ? '#000' : '#fff') : text }
+                                            { color: category === cat.name ? cat.color : text }
                                         ]}>
-                                            {cat}
+                                            {cat.name}
                                         </Text>
                                     </TouchableOpacity>
                                 ))}
@@ -150,11 +167,14 @@ export default function AddScreen() {
                             </Text>
                         </View>
 
-                        <TouchableOpacity style={[styles.button, { backgroundColor: isDark ? '#fff' : '#000' }]} onPress={handleSave}>
-                            <Text style={[styles.buttonText, { color: isDark ? '#000' : '#fff' }]}>Guardar en Really</Text>
-                        </TouchableOpacity>
                     </View>
                 </ScrollView>
+
+                <View style={[styles.footer, { backgroundColor: bg, borderTopColor: isDark ? '#333' : '#eee' }]}>
+                    <TouchableOpacity style={[styles.button, { backgroundColor: isDark ? '#fff' : '#000' }]} onPress={handleSave}>
+                        <Text style={[styles.buttonText, { color: isDark ? '#000' : '#fff' }]}>Guardar en Really</Text>
+                    </TouchableOpacity>
+                </View>
             </KeyboardAvoidingView>
         </View>
     );
@@ -231,7 +251,6 @@ const styles = StyleSheet.create({
         padding: 20,
         borderRadius: 16,
         alignItems: 'center',
-        marginTop: 20,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.2,
@@ -242,14 +261,21 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
     },
+    footer: {
+        padding: 20,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+        borderTopWidth: 1,
+    },
     categoriesContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 8,
     },
     categoryChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: 16,
-        paddingVertical: 8,
+        paddingVertical: 10,
         borderRadius: 20,
     },
     categoryText: {

@@ -77,6 +77,19 @@ export default function SettingsScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>General</Text>
 
+                    <TouchableOpacity
+                        style={[styles.option, { backgroundColor: optionBg }]}
+                        onPress={() => router.push('/achievements' as any)}
+                    >
+                        <View style={styles.optionLeft}>
+                            <View style={[styles.iconContainer, { backgroundColor: isDark ? '#333' : '#f5f5f5' }]}>
+                                <Ionicons name="trophy-outline" size={20} color={text} />
+                            </View>
+                            <Text style={[styles.optionText, { color: text }]}>Logros</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                    </TouchableOpacity>
+
 
 
                     <View style={[styles.option, { backgroundColor: optionBg }]}>

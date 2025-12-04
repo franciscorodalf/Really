@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,10 +22,11 @@ export default function Index() {
                 const hasSeen = await AsyncStorage.getItem('hasSeenOnboarding');
                 if (!hasSeen) {
                     router.replace('/onboarding' as any);
+                    return;
                 }
+                setIsCheckingOnboarding(false);
             } catch (e) {
                 console.error(e);
-            } finally {
                 setIsCheckingOnboarding(false);
             }
         };
@@ -53,13 +54,13 @@ export default function Index() {
         }, 1000);
     }, []);
 
-    const waitingItems = items.filter(
+    const waitingItems = useMemo(() => items.filter(
         (item) => item.status === 'waiting' && item.unlockAt > now
-    );
+    ), [items, now]);
 
-    const readyItems = items.filter(
+    const readyItems = useMemo(() => items.filter(
         (item) => item.status === 'waiting' && item.unlockAt <= now
-    );
+    ), [items, now]);
 
     const isDark = theme === 'dark';
     const bg = isDark ? '#000' : '#f8f9fa';
@@ -92,6 +93,9 @@ export default function Index() {
                         <Text style={[styles.headerTitle, { color: text }]}>Mis Deseos</Text>
                     </View>
                     <View style={styles.headerButtons}>
+                        <TouchableOpacity onPress={() => router.push('/goals' as any)} style={styles.iconButton}>
+                            <Ionicons name="flag-outline" size={24} color={text} />
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={() => router.push('/history' as any)} style={styles.iconButton}>
                             <Ionicons name="time-outline" size={24} color={text} />
                         </TouchableOpacity>
