@@ -1,10 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform, Dimensions } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform, Dimensions, useColorScheme } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore, Item } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { StatusBar } from 'expo-status-bar';
+import { Colors } from '../constants/Colors';
+import { ThemedText } from '../components/themed-text';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Configuración de idioma español para el calendario
 LocaleConfig.locales['es'] = {
@@ -25,17 +28,17 @@ export default function StatsScreen() {
     const router = useRouter();
     const { type } = useLocalSearchParams<{ type: 'saved' | 'spent' }>();
     const [currentType, setCurrentType] = useState<'saved' | 'spent'>(type || 'saved');
-    const { items, theme, moneySaved, moneySpent } = useStore();
+    const { items, moneySaved, moneySpent } = useStore();
     const [selectedDate, setSelectedDate] = useState('');
     const [showAnalysis, setShowAnalysis] = useState(false);
 
+    const colorScheme = useColorScheme() ?? 'light';
+    const AppTheme = Colors[colorScheme];
+
     const isSaved = currentType === 'saved';
-    const isDark = theme === 'dark';
-    const bg = isDark ? '#000' : '#f8f9fa';
-    const text = isDark ? '#fff' : '#000';
-    const cardBg = isDark ? '#1a1a1a' : '#fff';
-    const accentColor = isSaved ? '#4CAF50' : '#F44336'; // Green for saved, Red for spent
-    const subText = isDark ? '#999' : '#666';
+
+    // Theme adaptations
+    const accentColor = isSaved ? AppTheme.secondary : AppTheme.danger; // Mint for saved, Red for spent
 
     // Filtrar items según el tipo (para el calendario)
     const filteredItems = useMemo(() => {
@@ -142,17 +145,17 @@ export default function StatsScreen() {
     }, [items]);
 
     return (
-        <View style={[styles.container, { backgroundColor: bg }]}>
-            <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
+            <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
 
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color={text} />
+                    <Ionicons name="arrow-back" size={24} color={AppTheme.text} />
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: text }]}>
+                <ThemedText type="subtitle" style={{ color: AppTheme.text }}>
                     {isSaved ? 'Ahorrado' : 'Gastado'}
-                </Text>
+                </ThemedText>
                 <View style={{ width: 24 }} />
             </View>
 
@@ -162,45 +165,55 @@ export default function StatsScreen() {
                     style={[styles.tab, isSaved && styles.activeTab]}
                     onPress={() => setCurrentType('saved')}
                 >
-                    <Text style={[styles.tabText, isSaved ? { color: '#4CAF50' } : { color: subText }]}>Ahorrado</Text>
-                    {isSaved && <View style={[styles.activeIndicator, { backgroundColor: '#4CAF50' }]} />}
+                    <ThemedText style={[styles.tabText, isSaved ? { color: AppTheme.secondary } : { color: AppTheme.subtext }]}>Ahorrado</ThemedText>
+                    {isSaved && <View style={[styles.activeIndicator, { backgroundColor: AppTheme.secondary }]} />}
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.tab, !isSaved && styles.activeTab]}
                     onPress={() => setCurrentType('spent')}
                 >
-                    <Text style={[styles.tabText, !isSaved ? { color: '#F44336' } : { color: subText }]}>Gastado</Text>
-                    {!isSaved && <View style={[styles.activeIndicator, { backgroundColor: '#F44336' }]} />}
+                    <ThemedText style={[styles.tabText, !isSaved ? { color: AppTheme.danger } : { color: AppTheme.subtext }]}>Gastado</ThemedText>
+                    {!isSaved && <View style={[styles.activeIndicator, { backgroundColor: AppTheme.danger }]} />}
                 </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
                 {/* Total Card */}
-                <View style={[styles.totalCard, { backgroundColor: accentColor }]}>
-                    <Text style={styles.totalLabel}>Total {isSaved ? 'Ahorrado' : 'Gastado'}</Text>
-                    <Text style={styles.totalAmount}>
-                        ${(isSaved ? moneySaved : moneySpent).toFixed(0)}
-                    </Text>
+                <View style={[styles.totalCard]}>
+                    <LinearGradient
+                        colors={isSaved ? [AppTheme.secondary, '#00b894'] : [AppTheme.danger, '#d63031']}
+                        style={{ padding: 24, borderRadius: 24, width: '100%', alignItems: 'center' }}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                    >
+                        <ThemedText style={styles.totalLabel}>Total {isSaved ? 'Ahorrado' : 'Gastado'}</ThemedText>
+                        <ThemedText style={styles.totalAmount}>
+                            ${(isSaved ? moneySaved : moneySpent).toFixed(0)}
+                        </ThemedText>
+                    </LinearGradient>
                 </View>
 
                 {/* Calendar */}
-                <View style={[styles.calendarContainer, { backgroundColor: cardBg }]}>
+                <View style={[styles.calendarContainer, { backgroundColor: AppTheme.surface }]}>
                     <Calendar
                         theme={{
-                            backgroundColor: cardBg,
-                            calendarBackground: cardBg,
-                            textSectionTitleColor: isDark ? '#b6c1cd' : '#b6c1cd',
+                            backgroundColor: AppTheme.surface,
+                            calendarBackground: AppTheme.surface,
+                            textSectionTitleColor: AppTheme.subtext,
                             selectedDayBackgroundColor: accentColor,
                             selectedDayTextColor: '#ffffff',
                             todayTextColor: accentColor,
-                            dayTextColor: text,
-                            textDisabledColor: '#d9e1e8',
+                            dayTextColor: AppTheme.text,
+                            textDisabledColor: AppTheme.border,
                             dotColor: accentColor,
                             selectedDotColor: '#ffffff',
                             arrowColor: accentColor,
                             disabledArrowColor: '#d9e1e8',
-                            monthTextColor: text,
+                            monthTextColor: AppTheme.text,
                             indicatorColor: accentColor,
+                            textDayFontFamily: 'Outfit_400Regular',
+                            textMonthFontFamily: 'Outfit_600SemiBold',
+                            textDayHeaderFontFamily: 'Outfit_500Medium',
                         }}
                         markedDates={markedDates}
                         onDayPress={(day: { dateString: React.SetStateAction<string>; }) => {
@@ -212,29 +225,29 @@ export default function StatsScreen() {
                 {/* Selected Date Items */}
                 {selectedDate ? (
                     <View style={styles.itemsSection}>
-                        <Text style={[styles.sectionTitle, { color: text }]}>
+                        <ThemedText type="defaultSemiBold" style={{ marginBottom: 16 }}>
                             {new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                        </Text>
+                        </ThemedText>
                         {selectedDateItems.length > 0 ? (
                             selectedDateItems.map(item => (
-                                <View key={item.id} style={[styles.itemCard, { backgroundColor: cardBg }]}>
+                                <View key={item.id} style={[styles.itemCard, { backgroundColor: AppTheme.surface }]}>
                                     <View>
-                                        <Text style={[styles.itemName, { color: text }]}>{item.name}</Text>
-                                        <Text style={[styles.itemCategory, { color: subText }]}>{item.category || 'Sin categoría'}</Text>
+                                        <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
+                                        <ThemedText style={{ fontSize: 12, color: AppTheme.subtext, marginTop: 2 }}>{item.category || 'Sin categoría'}</ThemedText>
                                     </View>
-                                    <Text style={[styles.itemPrice, { color: accentColor }]}>${item.price}</Text>
+                                    <ThemedText type="defaultSemiBold" style={{ color: accentColor }}>${item.price}</ThemedText>
                                 </View>
                             ))
                         ) : (
-                            <Text style={[styles.emptyText, { color: subText }]}>
+                            <ThemedText style={[styles.emptyText, { color: AppTheme.subtext }]}>
                                 No hay actividad este día.
-                            </Text>
+                            </ThemedText>
                         )}
                     </View>
                 ) : (
-                    <Text style={[styles.hintText, { color: subText }]}>
+                    <ThemedText style={[styles.hintText, { color: AppTheme.subtext }]}>
                         Selecciona un día en el calendario para ver detalles.
-                    </Text>
+                    </ThemedText>
                 )}
 
                 {/* Contrast Button */}
@@ -243,7 +256,7 @@ export default function StatsScreen() {
                     onPress={() => setShowAnalysis(true)}
                 >
                     <Ionicons name="analytics-outline" size={20} color={accentColor} />
-                    <Text style={[styles.contrastButtonText, { color: accentColor }]}>Contrastar datos</Text>
+                    <ThemedText style={{ color: accentColor, fontWeight: '600' }}>Contrastar datos</ThemedText>
                 </TouchableOpacity>
 
             </ScrollView>
@@ -256,73 +269,73 @@ export default function StatsScreen() {
                 onRequestClose={() => setShowAnalysis(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+                    <View style={[styles.modalContent, { backgroundColor: AppTheme.background }]}>
                         <View style={styles.modalHeader}>
-                            <Text style={[styles.modalTitle, { color: text }]}>Tu Balance</Text>
+                            <ThemedText type="title">Tu Balance</ThemedText>
                             <TouchableOpacity onPress={() => setShowAnalysis(false)} style={styles.closeModalButton}>
-                                <Ionicons name="close" size={24} color={text} />
+                                <Ionicons name="close" size={24} color={AppTheme.text} />
                             </TouchableOpacity>
                         </View>
 
                         <ScrollView style={{ maxHeight: '90%' }} contentContainerStyle={{ paddingBottom: 40 }}>
 
                             {/* Global Chart */}
-                            <View style={[styles.card, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa' }]}>
-                                <Text style={[styles.cardTitle, { color: subText }]}>Resumen Global</Text>
+                            <View style={[styles.card, { backgroundColor: AppTheme.surface }]}>
+                                <ThemedText style={[styles.cardTitle, { color: AppTheme.subtext }]}>Resumen Global</ThemedText>
                                 <View style={styles.chartContainer}>
                                     <View style={styles.barContainer}>
-                                        <View style={[styles.barSegment, { flex: advancedStats.savingsRate || 1, backgroundColor: '#4CAF50', borderTopLeftRadius: 12, borderBottomLeftRadius: 12 }]} />
-                                        <View style={[styles.barSegment, { flex: advancedStats.spendingRate || 1, backgroundColor: '#F44336', borderTopRightRadius: 12, borderBottomRightRadius: 12 }]} />
+                                        <View style={[styles.barSegment, { flex: advancedStats.savingsRate || 1, backgroundColor: AppTheme.secondary, borderTopLeftRadius: 12, borderBottomLeftRadius: 12 }]} />
+                                        <View style={[styles.barSegment, { flex: advancedStats.spendingRate || 1, backgroundColor: AppTheme.danger, borderTopRightRadius: 12, borderBottomRightRadius: 12 }]} />
                                     </View>
                                     <View style={styles.legendContainer}>
                                         <View style={styles.legendItem}>
-                                            <Text style={[styles.legendValue, { color: '#4CAF50' }]}>{advancedStats.savingsRate.toFixed(1)}%</Text>
-                                            <Text style={[styles.legendLabel, { color: subText }]}>Ahorrado (${advancedStats.totalSaved.toFixed(0)})</Text>
+                                            <ThemedText style={[styles.legendValue, { color: AppTheme.secondary }]}>{advancedStats.savingsRate.toFixed(1)}%</ThemedText>
+                                            <ThemedText style={[styles.legendLabel, { color: AppTheme.subtext }]}>Ahorrado (${advancedStats.totalSaved.toFixed(0)})</ThemedText>
                                         </View>
                                         <View style={[styles.legendItem, { alignItems: 'flex-end' }]}>
-                                            <Text style={[styles.legendValue, { color: '#F44336' }]}>{advancedStats.spendingRate.toFixed(1)}%</Text>
-                                            <Text style={[styles.legendLabel, { color: subText }]}>Gastado (${advancedStats.totalSpent.toFixed(0)})</Text>
+                                            <ThemedText style={[styles.legendValue, { color: AppTheme.danger }]}>{advancedStats.spendingRate.toFixed(1)}%</ThemedText>
+                                            <ThemedText style={[styles.legendLabel, { color: AppTheme.subtext }]}>Gastado (${advancedStats.totalSpent.toFixed(0)})</ThemedText>
                                         </View>
                                     </View>
                                 </View>
                             </View>
 
                             {/* Records Grid */}
-                            <Text style={[styles.sectionHeader, { color: text }]}>Récords</Text>
+                            <ThemedText type="subtitle" style={{ marginBottom: 16 }}>Récords</ThemedText>
                             <View style={styles.grid}>
-                                <View style={[styles.gridCard, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa' }]}>
+                                <View style={[styles.gridCard, { backgroundColor: AppTheme.surface }]}>
                                     <Ionicons name="trophy-outline" size={24} color="#FFD700" style={{ marginBottom: 8 }} />
-                                    <Text style={[styles.gridLabel, { color: subText }]}>Mayor Ahorro</Text>
-                                    <Text style={[styles.gridValue, { color: text }]}>${advancedStats.maxSavedItem?.price || 0}</Text>
-                                    <Text style={[styles.gridSub, { color: subText }]} numberOfLines={1}>{advancedStats.maxSavedItem?.name || '-'}</Text>
+                                    <ThemedText style={[styles.gridLabel, { color: AppTheme.subtext }]}>Mayor Ahorro</ThemedText>
+                                    <ThemedText type="defaultSemiBold" style={{ fontSize: 20 }}>${advancedStats.maxSavedItem?.price || 0}</ThemedText>
+                                    <ThemedText style={[styles.gridSub, { color: AppTheme.subtext }]} numberOfLines={1}>{advancedStats.maxSavedItem?.name || '-'}</ThemedText>
                                 </View>
-                                <View style={[styles.gridCard, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa' }]}>
-                                    <Ionicons name="flame-outline" size={24} color="#F44336" style={{ marginBottom: 8 }} />
-                                    <Text style={[styles.gridLabel, { color: subText }]}>Mayor Gasto</Text>
-                                    <Text style={[styles.gridValue, { color: text }]}>${advancedStats.maxSpentItem?.price || 0}</Text>
-                                    <Text style={[styles.gridSub, { color: subText }]} numberOfLines={1}>{advancedStats.maxSpentItem?.name || '-'}</Text>
+                                <View style={[styles.gridCard, { backgroundColor: AppTheme.surface }]}>
+                                    <Ionicons name="flame-outline" size={24} color={AppTheme.danger} style={{ marginBottom: 8 }} />
+                                    <ThemedText style={[styles.gridLabel, { color: AppTheme.subtext }]}>Mayor Gasto</ThemedText>
+                                    <ThemedText type="defaultSemiBold" style={{ fontSize: 20 }}>${advancedStats.maxSpentItem?.price || 0}</ThemedText>
+                                    <ThemedText style={[styles.gridSub, { color: AppTheme.subtext }]} numberOfLines={1}>{advancedStats.maxSpentItem?.name || '-'}</ThemedText>
                                 </View>
                             </View>
 
                             {/* Averages Grid */}
                             <View style={styles.grid}>
-                                <View style={[styles.gridCard, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa' }]}>
-                                    <Text style={[styles.gridLabel, { color: subText }]}>Promedio Ahorro</Text>
-                                    <Text style={[styles.gridValue, { color: '#4CAF50' }]}>${advancedStats.avgSaved.toFixed(0)}</Text>
+                                <View style={[styles.gridCard, { backgroundColor: AppTheme.surface }]}>
+                                    <ThemedText style={[styles.gridLabel, { color: AppTheme.subtext }]}>Promedio Ahorro</ThemedText>
+                                    <ThemedText type="defaultSemiBold" style={{ color: AppTheme.secondary, fontSize: 18 }}>${advancedStats.avgSaved.toFixed(0)}</ThemedText>
                                 </View>
-                                <View style={[styles.gridCard, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa' }]}>
-                                    <Text style={[styles.gridLabel, { color: subText }]}>Promedio Gasto</Text>
-                                    <Text style={[styles.gridValue, { color: '#F44336' }]}>${advancedStats.avgSpent.toFixed(0)}</Text>
+                                <View style={[styles.gridCard, { backgroundColor: AppTheme.surface }]}>
+                                    <ThemedText style={[styles.gridLabel, { color: AppTheme.subtext }]}>Promedio Gasto</ThemedText>
+                                    <ThemedText type="defaultSemiBold" style={{ color: AppTheme.danger, fontSize: 18 }}>${advancedStats.avgSpent.toFixed(0)}</ThemedText>
                                 </View>
                             </View>
 
                             {/* Categories */}
-                            <Text style={[styles.sectionHeader, { color: text, marginTop: 24 }]}>Por Categorías</Text>
-                            <View style={[styles.card, { backgroundColor: isDark ? '#2a2a2a' : '#f8f9fa', padding: 0 }]}>
+                            <ThemedText type="subtitle" style={{ marginTop: 24, marginBottom: 16 }}>Por Categorías</ThemedText>
+                            <View style={[styles.card, { backgroundColor: AppTheme.surface, padding: 0 }]}>
                                 {advancedStats.categories.map((cat, index) => (
                                     <View key={cat.name} style={[
                                         styles.categoryRow,
-                                        { borderBottomColor: isDark ? '#333' : '#eee', borderBottomWidth: index === advancedStats.categories.length - 1 ? 0 : 1 }
+                                        { borderBottomColor: AppTheme.border, borderBottomWidth: index === advancedStats.categories.length - 1 ? 0 : 1 }
                                     ]}>
                                         <View style={styles.categoryHeader}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -331,24 +344,24 @@ export default function StatsScreen() {
                                                     backgroundColor: (cat.color || '#999') + '20',
                                                     alignItems: 'center', justifyContent: 'center'
                                                 }}>
-                                                    <Ionicons name={cat.icon as any || 'pricetag'} size={16} color={cat.color || text} />
+                                                    <Ionicons name={cat.icon as any || 'pricetag'} size={16} color={cat.color || AppTheme.text} />
                                                 </View>
-                                                <Text style={[styles.categoryName, { color: text }]}>{cat.name}</Text>
+                                                <ThemedText type="defaultSemiBold">{cat.name}</ThemedText>
                                             </View>
-                                            <Text style={[styles.categoryTotal, { color: text }]}>${cat.total}</Text>
+                                            <ThemedText type="defaultSemiBold">${cat.total}</ThemedText>
                                         </View>
                                         <View style={styles.miniBarContainer}>
                                             {cat.saved > 0 && (
-                                                <View style={[styles.miniBar, { width: `${(cat.saved / cat.total) * 100}%`, backgroundColor: '#4CAF50' }]} />
+                                                <View style={[styles.miniBar, { width: `${(cat.saved / cat.total) * 100}%`, backgroundColor: AppTheme.secondary }]} />
                                             )}
                                             {cat.spent > 0 && (
-                                                <View style={[styles.miniBar, { width: `${(cat.spent / cat.total) * 100}%`, backgroundColor: '#F44336' }]} />
+                                                <View style={[styles.miniBar, { width: `${(cat.spent / cat.total) * 100}%`, backgroundColor: AppTheme.danger }]} />
                                             )}
                                         </View>
                                         <View style={styles.categoryDetails}>
-                                            <Text style={styles.detailText}>
-                                                <Text style={{ color: '#4CAF50' }}>+${cat.saved}</Text> • <Text style={{ color: '#F44336' }}>-${cat.spent}</Text>
-                                            </Text>
+                                            <ThemedText style={{ fontSize: 12, fontWeight: '600' }}>
+                                                <ThemedText style={{ color: AppTheme.secondary, fontSize: 12 }}>+${cat.saved}</ThemedText> • <ThemedText style={{ color: AppTheme.danger, fontSize: 12 }}>-${cat.spent}</ThemedText>
+                                            </ThemedText>
                                         </View>
                                     </View>
                                 ))}
@@ -372,7 +385,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 20,
         paddingTop: 60,
-        paddingBottom: 10,
+        paddingBottom: 20,
     },
     tabsContainer: {
         flexDirection: 'row',
@@ -402,22 +415,16 @@ const styles = StyleSheet.create({
     backButton: {
         padding: 4,
     },
-    headerTitle: {
-        fontSize: 20,
-        fontWeight: '700',
-    },
     content: {
         padding: 20,
         paddingBottom: 40,
     },
     totalCard: {
-        padding: 24,
-        borderRadius: 24,
         marginBottom: 24,
-        alignItems: 'center',
+        borderRadius: 24,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
+        shadowOpacity: 0.1,
         shadowRadius: 8,
         elevation: 4,
     },
@@ -431,27 +438,18 @@ const styles = StyleSheet.create({
     totalAmount: {
         color: '#fff',
         fontSize: 36,
-        fontWeight: '800',
+        fontWeight: 'bold',
+        fontFamily: 'Outfit_700Bold',
+        lineHeight: 44,
     },
     calendarContainer: {
         borderRadius: 24,
         overflow: 'hidden',
         marginBottom: 24,
         padding: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
     },
     itemsSection: {
         marginBottom: 24,
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        marginBottom: 12,
-        textTransform: 'capitalize',
     },
     itemCard: {
         flexDirection: 'row',
@@ -460,18 +458,6 @@ const styles = StyleSheet.create({
         padding: 16,
         borderRadius: 16,
         marginBottom: 8,
-    },
-    itemName: {
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    itemCategory: {
-        fontSize: 12,
-        marginTop: 2,
-    },
-    itemPrice: {
-        fontSize: 16,
-        fontWeight: '700',
     },
     emptyText: {
         textAlign: 'center',
@@ -492,10 +478,6 @@ const styles = StyleSheet.create({
         gap: 8,
         marginTop: 10,
     },
-    contrastButtonText: {
-        fontSize: 16,
-        fontWeight: '700',
-    },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -506,7 +488,7 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 32,
         padding: 24,
         paddingTop: 32,
-        height: '85%',
+        height: '90%',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -514,14 +496,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 32,
     },
-    modalTitle: {
-        fontSize: 24,
-        fontWeight: '800',
-        letterSpacing: -0.5,
-    },
     closeModalButton: {
         padding: 4,
-        backgroundColor: 'rgba(128,128,128,0.1)',
         borderRadius: 20,
     },
     card: {
@@ -562,11 +538,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '500',
     },
-    sectionHeader: {
-        fontSize: 18,
-        fontWeight: '700',
-        marginBottom: 16,
-    },
     grid: {
         flexDirection: 'row',
         gap: 12,
@@ -583,11 +554,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginBottom: 4,
     },
-    gridValue: {
-        fontSize: 20,
-        fontWeight: '700',
-        marginBottom: 2,
-    },
     gridSub: {
         fontSize: 12,
         opacity: 0.8,
@@ -599,14 +565,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginBottom: 10,
-    },
-    categoryName: {
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    categoryTotal: {
-        fontSize: 16,
-        fontWeight: '700',
     },
     miniBarContainer: {
         flexDirection: 'row',
@@ -622,9 +580,5 @@ const styles = StyleSheet.create({
     categoryDetails: {
         flexDirection: 'row',
         justifyContent: 'flex-end',
-    },
-    detailText: {
-        fontSize: 12,
-        fontWeight: '600',
     },
 });

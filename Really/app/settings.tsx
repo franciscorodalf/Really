@@ -1,22 +1,21 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform, useColorScheme } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
 import * as Clipboard from 'expo-clipboard';
+import { Colors } from '../constants/Colors';
+import { ThemedText } from '../components/themed-text';
 
 export default function SettingsScreen() {
     const router = useRouter();
-    const { clearAllData, theme, toggleTheme, signOut, user } = useStore();
+    const { clearAllData, toggleTheme, signOut, user } = useStore();
+    const colorScheme = useColorScheme() ?? 'light';
+    const AppTheme = Colors[colorScheme];
 
-    const isDark = theme === 'dark';
-    const bg = isDark ? '#000' : '#f8f9fa';
-    const headerBg = isDark ? '#1a1a1a' : '#fff';
-    const text = isDark ? '#fff' : '#000';
-    const optionBg = isDark ? '#1a1a1a' : '#fff';
-    const border = isDark ? '#333' : '#f0f0f0';
+    const isDark = colorScheme === 'dark';
 
     const handleClearData = () => {
         Alert.alert(
@@ -53,92 +52,90 @@ export default function SettingsScreen() {
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: bg }]}>
+        <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
             <StatusBar style={isDark ? 'light' : 'dark'} />
-            <View style={[styles.header, { backgroundColor: headerBg, borderBottomColor: border }]}>
+            <View style={[styles.header, { backgroundColor: AppTheme.background }]}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color={text} />
+                    <Ionicons name="arrow-back" size={24} color={AppTheme.text} />
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: text }]}>Ajustes</Text>
+                <ThemedText type="subtitle" style={{ color: AppTheme.text }}>Ajustes</ThemedText>
                 <View style={{ width: 24 }} />
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Cuenta</Text>
-                    <Text style={[styles.emailText, { color: isDark ? '#999' : '#666' }]}>{user?.email}</Text>
+                    <ThemedText style={styles.sectionTitle}>Cuenta</ThemedText>
+                    <ThemedText style={[styles.emailText, { color: AppTheme.subtext }]}>{user?.email}</ThemedText>
                     <TouchableOpacity onPress={copySupportId} style={styles.supportIdContainer}>
-                        <Text style={[styles.supportIdLabel, { color: isDark ? '#666' : '#999' }]}>ID de Soporte: </Text>
-                        <Text style={[styles.supportIdValue, { color: text }]}>#{user?.uid.slice(-6).toUpperCase()}</Text>
-                        <Ionicons name="copy-outline" size={14} color={isDark ? '#666' : '#999'} style={{ marginLeft: 6 }} />
+                        <ThemedText style={[styles.supportIdLabel, { color: AppTheme.subtext }]}>ID de Soporte: </ThemedText>
+                        <ThemedText style={[styles.supportIdValue, { color: AppTheme.text }]}>#{user?.uid.slice(-6).toUpperCase()}</ThemedText>
+                        <Ionicons name="copy-outline" size={14} color={AppTheme.subtext} style={{ marginLeft: 6 }} />
                     </TouchableOpacity>
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>General</Text>
+                    <ThemedText style={styles.sectionTitle}>General</ThemedText>
 
                     <TouchableOpacity
-                        style={[styles.option, { backgroundColor: optionBg }]}
+                        style={[styles.option, { backgroundColor: AppTheme.surface }]}
                         onPress={() => router.push('/achievements' as any)}
                     >
                         <View style={styles.optionLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: isDark ? '#333' : '#f5f5f5' }]}>
-                                <Ionicons name="trophy-outline" size={20} color={text} />
+                            <View style={[styles.iconContainer, { backgroundColor: AppTheme.background }]}>
+                                <Ionicons name="trophy-outline" size={20} color={AppTheme.text} />
                             </View>
-                            <Text style={[styles.optionText, { color: text }]}>Logros</Text>
+                            <ThemedText style={{ fontSize: 16 }}>Logros</ThemedText>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                        <Ionicons name="chevron-forward" size={20} color={AppTheme.border} />
                     </TouchableOpacity>
 
-
-
-                    <View style={[styles.option, { backgroundColor: optionBg }]}>
+                    <View style={[styles.option, { backgroundColor: AppTheme.surface }]}>
                         <View style={styles.optionLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: isDark ? '#333' : '#f5f5f5' }]}>
-                                <Ionicons name={isDark ? "moon" : "sunny"} size={20} color={text} />
+                            <View style={[styles.iconContainer, { backgroundColor: AppTheme.background }]}>
+                                <Ionicons name={isDark ? "moon" : "sunny"} size={20} color={AppTheme.text} />
                             </View>
-                            <Text style={[styles.optionText, { color: text }]}>Tema Oscuro</Text>
+                            <ThemedText style={{ fontSize: 16 }}>Tema Oscuro</ThemedText>
                         </View>
                         <Switch
                             value={isDark}
                             onValueChange={toggleTheme}
-                            trackColor={{ false: '#767577', true: '#81b0ff' }}
-                            thumbColor={isDark ? '#f5dd4b' : '#f4f3f4'}
+                            trackColor={{ false: '#767577', true: AppTheme.primary }}
+                            thumbColor={isDark ? '#fff' : '#f4f3f4'}
                         />
                     </View>
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Zona de Peligro</Text>
+                    <ThemedText style={styles.sectionTitle}>Zona de Peligro</ThemedText>
 
                     <TouchableOpacity
-                        style={[styles.option, { backgroundColor: optionBg }]}
+                        style={[styles.option, { backgroundColor: AppTheme.surface }]}
                         onPress={handleClearData}
                     >
                         <View style={styles.optionLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: '#FFEBEE' }]}>
-                                <Ionicons name="trash" size={20} color="#C62828" />
+                            <View style={[styles.iconContainer, { backgroundColor: AppTheme.danger + '10' }]}>
+                                <Ionicons name="trash" size={20} color={AppTheme.danger} />
                             </View>
-                            <Text style={[styles.optionText, { color: '#C62828' }]}>Borrar todos los datos</Text>
+                            <ThemedText style={{ color: AppTheme.danger, fontSize: 16 }}>Borrar todos los datos</ThemedText>
                         </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        style={[styles.option, { backgroundColor: optionBg }]}
+                        style={[styles.option, { backgroundColor: AppTheme.surface }]}
                         onPress={handleSignOut}
                     >
                         <View style={styles.optionLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: '#f5f5f5' }]}>
-                                <Ionicons name="log-out-outline" size={20} color="#666" />
+                            <View style={[styles.iconContainer, { backgroundColor: AppTheme.background }]}>
+                                <Ionicons name="log-out-outline" size={20} color={AppTheme.subtext} />
                             </View>
-                            <Text style={[styles.optionText, { color: text }]}>Cerrar Sesión</Text>
+                            <ThemedText style={{ fontSize: 16 }}>Cerrar Sesión</ThemedText>
                         </View>
                     </TouchableOpacity>
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.version}>Really v1.0.0</Text>
-                    <Text style={styles.build}>Build {Constants.expoConfig?.version || '1.0.0'}</Text>
+                    <ThemedText style={styles.version}>Really v1.0.0</ThemedText>
+                    <ThemedText style={styles.build}>Build {Constants.expoConfig?.version || '1.0.0'}</ThemedText>
                 </View>
             </ScrollView>
         </View>
@@ -156,14 +153,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingTop: 60,
         paddingBottom: 20,
-        borderBottomWidth: 1,
     },
     backButton: {
         padding: 4,
-    },
-    headerTitle: {
-        fontSize: 18,
-        fontWeight: '600',
     },
     content: {
         padding: 20,
@@ -174,11 +166,11 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#666',
         textTransform: 'uppercase',
         letterSpacing: 1,
         marginBottom: 12,
         marginLeft: 4,
+        opacity: 0.6,
     },
     emailText: {
         fontSize: 16,
@@ -211,21 +203,16 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    optionText: {
-        fontSize: 16,
-        fontWeight: '500',
-    },
     footer: {
         alignItems: 'center',
         marginTop: 20,
+        opacity: 0.5,
     },
     version: {
-        color: '#999',
         fontSize: 14,
         fontWeight: '500',
     },
     build: {
-        color: '#ccc',
         fontSize: 12,
         marginTop: 4,
     },

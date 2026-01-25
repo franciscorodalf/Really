@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, useColorScheme } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useStore, Goal } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import Animated, { useAnimatedStyle, withSpring, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors } from '../constants/Colors';
+import { ThemedText } from '../components/themed-text';
+import { ThemedButton } from '../components/ThemedButton';
 
-const GoalCard = ({ goal, onDelete, onDeposit }: { goal: Goal, onDelete: (id: string) => void, onDeposit: (id: string) => void }) => {
+const GoalCard = ({ goal, onDelete, onDeposit, theme }: { goal: Goal, onDelete: (id: string) => void, onDeposit: (id: string) => void, theme: any }) => {
     const progress = Math.min(goal.currentAmount / goal.targetAmount, 1);
-
     const progressStyle = useAnimatedStyle(() => {
         return {
             width: withTiming(`${progress * 100}%`, { duration: 1000 }),
@@ -16,38 +19,44 @@ const GoalCard = ({ goal, onDelete, onDeposit }: { goal: Goal, onDelete: (id: st
     });
 
     return (
-        <View style={styles.card}>
-            <View style={styles.cardHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: goal.color + '20' }]}>
-                    <Ionicons name={goal.icon as any} size={24} color={goal.color} />
-                </View>
-                <View style={styles.cardInfo}>
-                    <Text style={styles.cardTitle}>{goal.name}</Text>
-                    <Text style={styles.cardSubtitle}>
-                        ${goal.currentAmount.toFixed(0)} / ${goal.targetAmount.toFixed(0)}
-                    </Text>
-                </View>
-                <View style={{ flexDirection: 'row' }}>
-                    <TouchableOpacity onPress={() => onDeposit(goal.id)} style={[styles.deleteButton, { marginRight: 4 }]}>
-                        <Ionicons name="add-circle-outline" size={24} color="#4CAF50" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => onDelete(goal.id)} style={styles.deleteButton}>
-                        <Ionicons name="trash-outline" size={20} color="#ff4444" />
-                    </TouchableOpacity>
-                </View>
-            </View>
+        <View style={[styles.card, { backgroundColor: theme.surface, shadowColor: theme.text }]}>
+            <LinearGradient
+                colors={[theme.surface, theme.surface]} // Or a subtle gradient? Let's stick to clean surface for now, maybe gradient on progress.
+                style={{ borderRadius: 24, padding: 20 }}
+            >
+                <View style={styles.cardHeader}>
+                    <View style={[styles.iconContainer, { backgroundColor: goal.color + '20' }]}>
+                        <Ionicons name={goal.icon as any} size={24} color={goal.color} />
+                    </View>
+                    <View style={styles.cardInfo}>
+                        <ThemedText type="defaultSemiBold" style={{ fontSize: 16 }}>{goal.name}</ThemedText>
+                        <ThemedText style={{ color: theme.subtext, fontSize: 14 }}>
+                            ${goal.currentAmount.toFixed(0)} / ${goal.targetAmount.toFixed(0)}
+                        </ThemedText>
+                    </View>
 
-            <View style={styles.progressBarBg}>
-                <Animated.View style={[styles.progressBarFill, { backgroundColor: goal.color }, progressStyle]} />
-            </View>
-            <Text style={styles.percentage}>{(progress * 100).toFixed(0)}%</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity onPress={() => onDeposit(goal.id)} style={[styles.actionButton, { backgroundColor: theme.primary + '20' }]}>
+                            <Ionicons name="add" size={20} color={theme.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => onDelete(goal.id)} style={[styles.actionButton, { backgroundColor: theme.danger + '20' }]}>
+                            <Ionicons name="trash-outline" size={18} color={theme.danger} />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+                    <Animated.View style={[styles.progressBarFill, { backgroundColor: goal.color }, progressStyle]} />
+                </View>
+                <ThemedText style={[styles.percentage, { color: theme.subtext }]}>{(progress * 100).toFixed(0)}%</ThemedText>
+            </LinearGradient>
         </View>
     );
 };
 
 export default function GoalsScreen() {
     const router = useRouter();
-    const { goals, addGoal, deleteGoal, allocateSavings, moneySaved, theme } = useStore();
+    const { goals, addGoal, deleteGoal, allocateSavings, moneySaved } = useStore();
     const [modalVisible, setModalVisible] = useState(false);
     const [depositModalVisible, setDepositModalVisible] = useState(false);
     const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -58,9 +67,8 @@ export default function GoalsScreen() {
     const [selectedIcon, setSelectedIcon] = useState('airplane');
     const [selectedColor, setSelectedColor] = useState('#2196F3');
 
-    const isDark = theme === 'dark';
-    const bg = isDark ? '#000' : '#f8f9fa';
-    const text = isDark ? '#fff' : '#000';
+    const colorScheme = useColorScheme() ?? 'light';
+    const AppTheme = Colors[colorScheme];
 
     const handleAddGoal = async () => {
         if (!newGoalName || !newGoalAmount) {
@@ -97,7 +105,7 @@ export default function GoalsScreen() {
             return;
         }
         if (amount > moneySaved) {
-            Alert.alert('Error', `No tienes suficientes ahorros. Disponible: $${moneySaved}`);
+            Alert.alert('Error', `No tienes suficientes ahorros. Disponible: $${moneySaved.toFixed(0)}`);
             return;
         }
         await allocateSavings(selectedGoalId, amount);
@@ -110,46 +118,65 @@ export default function GoalsScreen() {
     const COLORS = ['#2196F3', '#4CAF50', '#FFC107', '#9C27B0', '#F44336', '#E91E63', '#00BCD4', '#FF5722'];
 
     return (
-        <View style={[styles.container, { backgroundColor: bg }]}>
+        <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
             <Stack.Screen options={{
                 headerShown: true,
                 title: 'Metas de Ahorro',
-                headerStyle: { backgroundColor: bg },
-                headerTintColor: text,
+                headerStyle: { backgroundColor: AppTheme.background },
+                headerTintColor: AppTheme.text,
                 headerLeft: () => (
                     <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
-                        <Ionicons name="arrow-back" size={24} color={text} />
+                        <Ionicons name="arrow-back" size={24} color={AppTheme.text} />
                     </TouchableOpacity>
                 ),
+                headerShadowVisible: false, // Cleaner
             }} />
-            <StatusBar style={isDark ? 'light' : 'dark'} />
+            <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
 
             <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.savingsCard}>
-                    <Text style={[styles.savingsLabel, { color: text }]}>Ahorros Disponibles</Text>
-                    <Text style={[styles.savingsAmount, { color: text }]}>${moneySaved.toFixed(0)}</Text>
+                    <LinearGradient
+                        colors={[AppTheme.secondary, '#00b894']}
+                        style={styles.savingsGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                    >
+                        <ThemedText style={styles.savingsLabel}>Ahorros Disponibles</ThemedText>
+                        <ThemedText type="title" style={{ color: '#fff', fontSize: 36 }}>${moneySaved.toFixed(0)}</ThemedText>
+                    </LinearGradient>
                 </View>
 
                 {goals.map(goal => (
-                    <GoalCard key={goal.id} goal={goal} onDelete={handleDelete} onDeposit={handleOpenDeposit} />
+                    <GoalCard key={goal.id} goal={goal} onDelete={handleDelete} onDeposit={handleOpenDeposit} theme={AppTheme} />
                 ))}
 
                 {goals.length === 0 && (
                     <View style={styles.emptyState}>
-                        <Ionicons name="flag-outline" size={64} color={isDark ? '#333' : '#ddd'} />
-                        <Text style={[styles.emptyText, { color: text }]}>No tienes metas aún</Text>
-                        <Text style={styles.emptySubtext}>Crea una meta para motivarte a ahorrar</Text>
+                        <View style={[styles.emptyIconBg, { backgroundColor: AppTheme.primary + '10' }]}>
+                            <Ionicons name="flag-outline" size={64} color={AppTheme.primary} />
+                        </View>
+                        <ThemedText type="defaultSemiBold" style={{ marginTop: 16 }}>No tienes metas aún</ThemedText>
+                        <ThemedText style={{ color: AppTheme.subtext, marginTop: 8 }}>Crea una meta para motivarte a ahorrar</ThemedText>
                     </View>
                 )}
             </ScrollView>
 
             <TouchableOpacity
-                style={[styles.fab, { backgroundColor: isDark ? '#fff' : '#000' }]}
+                style={styles.fab}
                 onPress={() => setModalVisible(true)}
+                activeOpacity={0.8}
             >
-                <Ionicons name="add" size={32} color={isDark ? '#000' : '#fff'} />
+                <LinearGradient
+                    colors={[AppTheme.primary, '#8257E5']}
+                    style={styles.fabGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                >
+                    <Ionicons name="add" size={32} color="#fff" />
+                </LinearGradient>
             </TouchableOpacity>
 
+            {/* CREAR META MODAL */}
             <Modal
                 animationType="slide"
                 transparent={true}
@@ -157,27 +184,27 @@ export default function GoalsScreen() {
                 onRequestClose={() => setModalVisible(false)}
             >
                 <View style={styles.modalContainer}>
-                    <View style={[styles.modalContent, { backgroundColor: isDark ? '#222' : '#fff' }]}>
-                        <Text style={[styles.modalTitle, { color: text }]}>Nueva Meta</Text>
+                    <View style={[styles.modalContent, { backgroundColor: AppTheme.surface }]}>
+                        <ThemedText type="subtitle" style={{ marginBottom: 20 }}>Nueva Meta</ThemedText>
 
                         <TextInput
-                            style={[styles.input, { color: text, borderColor: isDark ? '#444' : '#ddd' }]}
+                            style={[styles.input, { color: AppTheme.text, borderColor: AppTheme.border, backgroundColor: AppTheme.background }]}
                             placeholder="Nombre (ej: Viaje a Japón)"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={AppTheme.subtext}
                             value={newGoalName}
                             onChangeText={setNewGoalName}
                         />
 
                         <TextInput
-                            style={[styles.input, { color: text, borderColor: isDark ? '#444' : '#ddd' }]}
+                            style={[styles.input, { color: AppTheme.text, borderColor: AppTheme.border, backgroundColor: AppTheme.background }]}
                             placeholder="Cantidad Objetivo ($)"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={AppTheme.subtext}
                             value={newGoalAmount}
                             onChangeText={setNewGoalAmount}
                             keyboardType="numeric"
                         />
 
-                        <Text style={[styles.label, { color: text }]}>Icono</Text>
+                        <ThemedText style={[styles.label, { color: AppTheme.text }]}>Icono</ThemedText>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selector}>
                             {ICONS.map(icon => (
                                 <TouchableOpacity
@@ -188,12 +215,12 @@ export default function GoalsScreen() {
                                         selectedIcon === icon && { backgroundColor: selectedColor + '20', borderColor: selectedColor }
                                     ]}
                                 >
-                                    <Ionicons name={icon as any} size={24} color={selectedIcon === icon ? selectedColor : '#999'} />
+                                    <Ionicons name={icon as any} size={24} color={selectedIcon === icon ? selectedColor : AppTheme.subtext} />
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <Text style={[styles.label, { color: text }]}>Color</Text>
+                        <ThemedText style={[styles.label, { color: AppTheme.text }]}>Color</ThemedText>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selector}>
                             {COLORS.map(color => (
                                 <TouchableOpacity
@@ -202,51 +229,46 @@ export default function GoalsScreen() {
                                     style={[
                                         styles.colorOption,
                                         { backgroundColor: color },
-                                        selectedColor === color && { borderWidth: 2, borderColor: text }
+                                        selectedColor === color && { borderWidth: 3, borderColor: AppTheme.text }
                                     ]}
                                 />
                             ))}
                         </ScrollView>
 
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
-                                <Text style={{ color: '#999' }}>Cancelar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleAddGoal} style={[styles.modalButton, { backgroundColor: '#000' }]}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Crear Meta</Text>
-                            </TouchableOpacity>
+                            <ThemedButton title="Cancelar" variant="ghost" onPress={() => setModalVisible(false)} style={{ flex: 1 }} />
+                            <ThemedButton title="Crear Meta" variant="primary" onPress={handleAddGoal} style={{ flex: 1 }} />
                         </View>
                     </View>
                 </View>
             </Modal>
 
+            {/* DEPOSIT MODAL */}
             <Modal
                 animationType="fade"
                 transparent={true}
                 visible={depositModalVisible}
                 onRequestClose={() => setDepositModalVisible(false)}
             >
-                <View style={styles.modalContainer}>
-                    <View style={[styles.modalContent, { backgroundColor: isDark ? '#222' : '#fff' }]}>
-                        <Text style={[styles.modalTitle, { color: text }]}>Asignar Ahorros</Text>
-                        <Text style={{ color: '#999', marginBottom: 16 }}>Disponible: ${moneySaved}</Text>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: AppTheme.surface, marginHorizontal: 20, borderRadius: 24 }]}>
+                        {/* Re-using modalContent style but modifying for center popup */}
+                        <ThemedText type="subtitle">Asignar Ahorros</ThemedText>
+                        <ThemedText style={{ color: AppTheme.subtext, marginBottom: 16 }}>Disponible: ${moneySaved.toFixed(0)}</ThemedText>
 
                         <TextInput
-                            style={[styles.input, { color: text, borderColor: isDark ? '#444' : '#ddd' }]}
+                            style={[styles.input, { color: AppTheme.text, borderColor: AppTheme.border, backgroundColor: AppTheme.background }]}
                             placeholder="Cantidad a asignar ($)"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={AppTheme.subtext}
                             value={depositAmount}
                             onChangeText={setDepositAmount}
                             keyboardType="numeric"
+                            autoFocus
                         />
 
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity onPress={() => setDepositModalVisible(false)} style={styles.modalButton}>
-                                <Text style={{ color: '#999' }}>Cancelar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleDeposit} style={[styles.modalButton, { backgroundColor: '#4CAF50' }]}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Asignar</Text>
-                            </TouchableOpacity>
+                            <ThemedButton title="Cancelar" variant="ghost" onPress={() => setDepositModalVisible(false)} style={{ flex: 1 }} />
+                            <ThemedButton title="Asignar" variant="secondary" onPress={handleDeposit} style={{ flex: 1 }} />
                         </View>
                     </View>
                 </View>
@@ -265,37 +287,42 @@ const styles = StyleSheet.create({
     },
     savingsCard: {
         marginBottom: 24,
+        borderRadius: 24,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    savingsGradient: {
+        padding: 24,
         alignItems: 'center',
     },
     savingsLabel: {
         fontSize: 14,
-        opacity: 0.7,
+        color: 'rgba(255,255,255,0.8)',
         marginBottom: 4,
-    },
-    savingsAmount: {
-        fontSize: 32,
-        fontWeight: '800',
+        fontWeight: '600',
+        textTransform: 'uppercase',
     },
     card: {
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 16,
+        borderRadius: 20,
         marginBottom: 16,
-        shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.05,
         shadowRadius: 4,
         elevation: 2,
     },
     cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 16,
     },
     iconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 48,
+        height: 48,
+        borderRadius: 24,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 12,
@@ -303,23 +330,18 @@ const styles = StyleSheet.create({
     cardInfo: {
         flex: 1,
     },
-    cardTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#000',
-    },
-    cardSubtitle: {
-        fontSize: 14,
-        color: '#666',
-    },
-    deleteButton: {
-        padding: 8,
+    actionButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     progressBarBg: {
         height: 8,
-        backgroundColor: '#f0f0f0',
         borderRadius: 4,
         overflow: 'hidden',
+        marginBottom: 4,
     },
     progressBarFill: {
         height: '100%',
@@ -328,43 +350,47 @@ const styles = StyleSheet.create({
     percentage: {
         alignSelf: 'flex-end',
         fontSize: 12,
-        color: '#666',
-        marginTop: 4,
+        fontWeight: '600',
     },
     fab: {
         position: 'absolute',
         right: 24,
         bottom: 40,
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        alignItems: 'center',
-        justifyContent: 'center',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.3,
         shadowRadius: 12,
         elevation: 8,
+        borderRadius: 32,
+    },
+    fabGradient: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     emptyState: {
         alignItems: 'center',
         marginTop: 60,
-        opacity: 0.8,
     },
-    emptyText: {
-        fontSize: 18,
-        fontWeight: '600',
-        marginTop: 16,
-    },
-    emptySubtext: {
-        color: '#999',
-        fontSize: 14,
-        marginTop: 8,
+    emptyIconBg: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
     },
     modalContainer: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
         justifyContent: 'flex-end',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
     },
     modalContent: {
         borderTopLeftRadius: 24,
@@ -372,27 +398,22 @@ const styles = StyleSheet.create({
         padding: 24,
         paddingBottom: 40,
     },
-    modalTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        marginBottom: 20,
-    },
     input: {
         borderWidth: 1,
-        borderRadius: 12,
+        borderRadius: 16,
         padding: 16,
-        marginBottom: 16,
         fontSize: 16,
+        marginBottom: 16,
     },
     label: {
         fontSize: 14,
         fontWeight: '600',
-        marginBottom: 8,
+        marginBottom: 12,
         marginTop: 8,
     },
     selector: {
         flexDirection: 'row',
-        marginBottom: 16,
+        marginBottom: 20,
     },
     iconOption: {
         width: 48,
@@ -415,12 +436,5 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginTop: 24,
         gap: 16,
-    },
-    modalButton: {
-        flex: 1,
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
 });
