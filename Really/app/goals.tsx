@@ -4,7 +4,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useStore, Goal } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, FadeInDown, FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
@@ -12,14 +12,23 @@ import { ThemedButton } from '../components/ThemedButton';
 
 const GoalCard = ({ goal, onDelete, onDeposit, theme }: { goal: Goal, onDelete: (id: string) => void, onDeposit: (id: string) => void, theme: any }) => {
     const progress = Math.min(goal.currentAmount / goal.targetAmount, 1);
+    const progressValue = useSharedValue(progress);
+
+    React.useEffect(() => {
+        progressValue.value = withTiming(progress, {
+            duration: 700,
+            easing: Easing.out(Easing.cubic),
+        });
+    }, [progress, progressValue]);
+
     const progressStyle = useAnimatedStyle(() => {
         return {
-            width: withTiming(`${progress * 100}%`, { duration: 1000 }),
+            width: `${Math.max(0, Math.min(1, progressValue.value)) * 100}%`,
         };
     });
 
     return (
-        <View style={[styles.card, { backgroundColor: theme.surface, shadowColor: theme.text }]}>
+        <Animated.View entering={FadeInDown.duration(220)} style={[styles.card, { backgroundColor: theme.surface, shadowColor: theme.text }]}>
             <LinearGradient
                 colors={[theme.surface, theme.surface]} // Or a subtle gradient? Let's stick to clean surface for now, maybe gradient on progress.
                 style={{ borderRadius: 24, padding: 20 }}
@@ -50,7 +59,7 @@ const GoalCard = ({ goal, onDelete, onDeposit, theme }: { goal: Goal, onDelete: 
                 </View>
                 <ThemedText style={[styles.percentage, { color: theme.subtext }]}>{(progress * 100).toFixed(0)}%</ThemedText>
             </LinearGradient>
-        </View>
+        </Animated.View>
     );
 };
 
@@ -151,13 +160,13 @@ export default function GoalsScreen() {
                 ))}
 
                 {goals.length === 0 && (
-                    <View style={styles.emptyState}>
+                    <Animated.View entering={FadeIn.duration(220)} style={styles.emptyState}>
                         <View style={[styles.emptyIconBg, { backgroundColor: AppTheme.primary + '10' }]}>
                             <Ionicons name="flag-outline" size={64} color={AppTheme.primary} />
                         </View>
                         <ThemedText type="defaultSemiBold" style={{ marginTop: 16 }}>No tienes metas aún</ThemedText>
                         <ThemedText style={{ color: AppTheme.subtext, marginTop: 8 }}>Crea una meta para motivarte a ahorrar</ThemedText>
-                    </View>
+                    </Animated.View>
                 )}
             </ScrollView>
 

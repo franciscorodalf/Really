@@ -31,12 +31,15 @@ jest.mock('firebase/firestore', () => ({
     deleteDoc: jest.fn(),
     query: jest.fn(),
     orderBy: jest.fn(),
+    getDoc: jest.fn(),
+    runTransaction: jest.fn(),
 }));
 
 // Mock expo-notifications
 jest.mock('expo-notifications', () => ({
     setNotificationHandler: jest.fn(),
     scheduleNotificationAsync: jest.fn(),
+    cancelScheduledNotificationAsync: jest.fn(),
     requestPermissionsAsync: jest.fn(() => Promise.resolve({ status: 'granted' })),
     setNotificationChannelAsync: jest.fn(),
     AndroidImportance: { MAX: 5 },
@@ -82,5 +85,94 @@ describe('StoreContext', () => {
         // we can't verify items array update without more complex mocking.
         // However, we can verify the function didn't crash.
         expect(true).toBe(true);
+    });
+
+    it('resolveItem updates stats, achievements and cancels notification', async () => {
+        const { runTransaction } = require('firebase/firestore');
+        const { cancelScheduledNotificationAsync } = require('expo-notifications');
+
+        const itemData = {
+            id: 'item-1',
+            name: 'Test',
+            price: 50,
+            createdAt: Date.now(),
+            unlockAt: Date.now(),
+            status: 'waiting',
+            notificationId: 'notif-123',
+        };
+        const userData = {
+            moneySaved: 0,
+            moneySpent: 0,
+            savedCount: 0,
+            achievements: [],
+        };
+
+        const transaction = {
+            get: jest.fn()
+                .mockResolvedValueOnce({ exists: () => true, data: () => itemData })
+                .mockResolvedValueOnce({ exists: () => true, data: () => userData }),
+            update: jest.fn(),
+            set: jest.fn(),
+        };
+
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => {
+            return updateFn(transaction);
+        });
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.resolveItem('item-1', 'save');
+        });
+
+        expect(transaction.update).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ status: 'saved', resolvedAt: expect.any(Number) })
+        );
+        expect(transaction.set).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                moneySaved: 50,
+                savedCount: 1,
+                achievements: expect.arrayContaining(['first_save']),
+            }),
+            { merge: true }
+        );
+        expect(cancelScheduledNotificationAsync).toHaveBeenCalledWith('notif-123');
+    });
+
+    it('allocateSavings does nothing when funds are insufficient', async () => {
+        const { runTransaction } = require('firebase/firestore');
+
+        const transaction = {
+            get: jest.fn()
+                .mockResolvedValueOnce({ exists: () => true, data: () => ({ id: 'goal-1', currentAmount: 0 }) })
+                .mockResolvedValueOnce({ exists: () => true, data: () => ({ moneySaved: 10 }) }),
+            update: jest.fn(),
+            set: jest.fn(),
+        };
+
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => {
+            return updateFn(transaction);
+        });
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.allocateSavings('goal-1', 20);
+        });
+
+        expect(transaction.update).not.toHaveBeenCalled();
+        expect(transaction.set).not.toHaveBeenCalled();
     });
 });

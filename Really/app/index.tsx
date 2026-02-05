@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 export default function Index() {
     const router = useRouter();
@@ -175,13 +176,13 @@ export default function Index() {
                 )}
 
                 {items.length === 0 && (
-                    <View style={styles.emptyState}>
+                    <Animated.View entering={FadeIn.duration(220)} style={styles.emptyState}>
                         <View style={[styles.emptyIconBg, { backgroundColor: AppTheme.primary + '10' }]}>
                             <Ionicons name="cart-outline" size={48} color={AppTheme.primary} />
                         </View>
                         <ThemedText type="defaultSemiBold" style={{ marginTop: 16 }}>No tienes deseos pendientes.</ThemedText>
                         <ThemedText style={{ color: AppTheme.subtext, marginTop: 8 }}>¡Agrega algo que quieras comprar!</ThemedText>
-                    </View>
+                    </Animated.View>
                 )}
             </ScrollView>
 
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 20,
-        paddingBottom: 100,
+        paddingBottom: 140,
     },
     header: {
         flexDirection: 'row',
@@ -237,11 +238,11 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 4,
         overflow: 'hidden',
+        minHeight: 140,
     },
     cardGradient: {
         padding: 20,
         width: '100%',
-        height: '100%',
         justifyContent: 'space-between',
         alignItems: 'flex-start', // Important for layout
     },

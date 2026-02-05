@@ -1,10 +1,11 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useCallback } from 'react';
-import { StoreProvider } from '../context/StoreContext';
+import { StoreProvider, useStore } from '../context/StoreContext';
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_700Bold } from '@expo-google-fonts/outfit';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { NoticeBanner } from '../components/NoticeBanner';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -29,6 +30,7 @@ export default function RootLayout() {
     <StoreProvider>
       <StatusBar style="dark" />
       <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+        <NoticeHost />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -55,4 +57,9 @@ export default function RootLayout() {
       </View>
     </StoreProvider>
   );
+}
+
+function NoticeHost() {
+  const { notice, clearNotice } = useStore();
+  return <NoticeBanner notice={notice} onDismiss={clearNotice} />;
 }

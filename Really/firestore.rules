@@ -1,15 +1,92 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isString(val) { return val is string; }
+    function isNumber(val) { return val is number; }
+    function inRange(val, min, max) { return isNumber(val) && val >= min && val <= max; }
+    function isTheme(val) { return val == 'light' || val == 'dark'; }
+    function isStatus(val) { return val == 'waiting' || val == 'bought' || val == 'saved'; }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly([
+          'moneySaved',
+          'moneySpent',
+          'theme',
+          'supportId',
+          'achievements',
+          'savedCount'
+        ])
+        && ( !('moneySaved' in request.resource.data) || inRange(request.resource.data.moneySaved, 0, 1000000) )
+        && ( !('moneySpent' in request.resource.data) || inRange(request.resource.data.moneySpent, 0, 1000000) )
+        && ( !('savedCount' in request.resource.data) || inRange(request.resource.data.savedCount, 0, 1000000) )
+        && ( !('theme' in request.resource.data) || isTheme(request.resource.data.theme) )
+        && ( !('supportId' in request.resource.data) || (isString(request.resource.data.supportId) && request.resource.data.supportId.size() <= 32) )
+        && ( !('achievements' in request.resource.data) || request.resource.data.achievements is list );
       
       match /items/{itemId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'name',
+            'price',
+            'createdAt',
+            'unlockAt',
+            'status',
+            'image',
+            'resolvedAt',
+            'category',
+            'categoryIcon',
+            'categoryColor',
+            'notificationId'
+          ])
+          && isString(request.resource.data.id)
+          && isString(request.resource.data.name)
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 80
+          && inRange(request.resource.data.price, 0.01, 1000000)
+          && isNumber(request.resource.data.createdAt)
+          && isNumber(request.resource.data.unlockAt)
+          && isStatus(request.resource.data.status)
+          && ( !('resolvedAt' in request.resource.data) || isNumber(request.resource.data.resolvedAt) )
+          && ( !('image' in request.resource.data) || isString(request.resource.data.image) )
+          && ( !('category' in request.resource.data) || (isString(request.resource.data.category) && request.resource.data.category.size() <= 40) )
+          && ( !('categoryIcon' in request.resource.data) || isString(request.resource.data.categoryIcon) )
+          && ( !('categoryColor' in request.resource.data) || (isString(request.resource.data.categoryColor) && request.resource.data.categoryColor.size() <= 16) )
+          && ( !('notificationId' in request.resource.data) || (isString(request.resource.data.notificationId) && request.resource.data.notificationId.size() <= 100) );
+
+        allow delete: if request.auth != null && request.auth.uid == userId;
       }
       
       match /goals/{goalId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'id',
+            'name',
+            'targetAmount',
+            'currentAmount',
+            'icon',
+            'color',
+            'createdAt'
+          ])
+          && isString(request.resource.data.id)
+          && isString(request.resource.data.name)
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 80
+          && inRange(request.resource.data.targetAmount, 1, 1000000)
+          && inRange(request.resource.data.currentAmount, 0, 1000000)
+          && request.resource.data.currentAmount <= request.resource.data.targetAmount
+          && isString(request.resource.data.icon)
+          && isString(request.resource.data.color)
+          && isNumber(request.resource.data.createdAt);
+
+        allow delete: if request.auth != null && request.auth.uid == userId;
       }
     }
   }

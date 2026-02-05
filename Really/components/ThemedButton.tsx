@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, StyleSheet, TouchableOpacityProps, ViewStyle, TextStyle } from 'react-native';
+import { Text, StyleSheet, TouchableOpacityProps, ViewStyle, TextStyle, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -7,19 +7,17 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
-const AnimatedTouchable = Animated.createAnimatedComponent(LinearGradient);
-const AnimatedView = Animated.createAnimatedComponent(React.Fragment); // Simplified for now, actually we need a wrapper
-
 interface ThemedButtonProps extends TouchableOpacityProps {
     title: string;
     variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
     onPress: () => void;
     style?: ViewStyle;
     textStyle?: TextStyle;
+    containerStyle?: ViewStyle;
     icon?: React.ReactNode;
 }
 
-export function ThemedButton({ title, variant = 'primary', onPress, style, textStyle, icon, ...props }: ThemedButtonProps) {
+export function ThemedButton({ title, variant = 'primary', onPress, style, textStyle, containerStyle, icon, ...pressableProps }: ThemedButtonProps) {
     const scale = useSharedValue(1);
     const colorScheme = useColorScheme() ?? 'light';
     const theme = Colors[colorScheme];
@@ -68,29 +66,32 @@ export function ThemedButton({ title, variant = 'primary', onPress, style, textS
     // Actually LinearGradient requires colors.
 
     return (
-        <Animated.View style={[animatedStyle, { width: '100%' }]}>
-            <LinearGradient
-                colors={bgColors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[
-                    styles.button,
-                    {
-                        borderWidth,
-                        borderColor,
-                    },
-                    style,
-                ]}
-                onTouchStart={handlePressIn}
-                onTouchEnd={handlePressOut}
-            // Basic touch handling. ideally upgrade to Pressable or TouchableOpacity wrapping
+        <Animated.View style={[animatedStyle, containerStyle]}>
+            <Pressable
+                onPress={onPress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                {...pressableProps}
             >
-                {/* We need a Pressable/Touchable for the actual press event if we want standard behavior */}
-                <Text style={[styles.text, { color: textColor, fontFamily: 'Outfit_700Bold' }, textStyle]} onPress={onPress}>
-                    {icon && <>{icon}  </>}
-                    {title}
-                </Text>
-            </LinearGradient>
+                <LinearGradient
+                    colors={bgColors}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                        styles.button,
+                        {
+                            borderWidth,
+                            borderColor,
+                        },
+                        style,
+                    ]}
+                >
+                    <Text style={[styles.text, { color: textColor, fontFamily: 'Outfit_700Bold' }, textStyle]}>
+                        {icon && <>{icon}  </>}
+                        {title}
+                    </Text>
+                </LinearGradient>
+            </Pressable>
         </Animated.View>
     );
 }

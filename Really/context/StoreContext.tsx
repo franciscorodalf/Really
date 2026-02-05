@@ -29,7 +29,9 @@ import {
     updateDoc,
     deleteDoc,
     query,
-    orderBy
+    orderBy,
+    getDoc,
+    runTransaction
 } from 'firebase/firestore';
 
 // Configure notifications only on native platforms
@@ -61,6 +63,7 @@ export interface Item {
     category?: string;
     categoryIcon?: string;
     categoryColor?: string;
+    notificationId?: string;
 }
 
 export interface Goal {
@@ -92,6 +95,15 @@ export const ACHIEVEMENTS: Achievement[] = [
 ];
 
 export type Theme = 'light' | 'dark';
+export type NoticeType = 'success' | 'error' | 'info';
+
+export interface Notice {
+    type: NoticeType;
+    message: string;
+    actionLabel?: string;
+    onAction?: () => void;
+    autoHide?: boolean;
+}
 
 interface StoreContextType {
     items: Item[];
@@ -102,6 +114,9 @@ interface StoreContextType {
     user: User | null;
     theme: Theme;
     isLoading: boolean;
+    notice: Notice | null;
+    showNotice: (notice: Notice) => void;
+    clearNotice: () => void;
     addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
@@ -131,9 +146,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [userAchievements, setUserAchievements] = useState<string[]>([]);
     const [moneySaved, setMoneySaved] = useState(0);
     const [moneySpent, setMoneySpent] = useState(0);
+    const [savedCount, setSavedCount] = useState<number | null>(null);
     const [user, setUser] = useState<User | null>(null);
     const [theme, setTheme] = useState<Theme>('light');
     const [isLoading, setIsLoading] = useState(true);
+    const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
+    const [notice, setNotice] = useState<Notice | null>(null);
+    const [hasOfflineNotice, setHasOfflineNotice] = useState(false);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -150,6 +169,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setGoals([]);
             setMoneySaved(0);
             setMoneySpent(0);
+            setSavedCount(null);
+            setHasItemsLoaded(false);
             return;
         }
 
@@ -163,6 +184,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setMoneySpent(data.moneySpent || 0);
                 setTheme(data.theme || 'light');
                 setUserAchievements(data.achievements || []);
+                setSavedCount(typeof data.savedCount === 'number' ? data.savedCount : null);
 
                 // Ensure supportId is saved
                 if (!data.supportId) {
@@ -185,6 +207,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 loadedItems.push(doc.data() as Item);
             });
             setItems(loadedItems);
+            setHasItemsLoaded(true);
         });
 
         // Listen to goals subcollection
@@ -204,6 +227,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             unsubscribeGoals();
         };
     }, [user]);
+
+    useEffect(() => {
+        if (!user || !hasItemsLoaded || savedCount !== null) return;
+        const computedSavedCount = items.filter(i => i.status === 'saved').length;
+        setDoc(doc(db, 'users', user.uid), { savedCount: computedSavedCount }, { merge: true });
+        setSavedCount(computedSavedCount);
+    }, [user, hasItemsLoaded, savedCount, items]);
 
     const requestPermissions = async () => {
         if (Platform.OS === 'web' || !Notifications) return;
@@ -232,12 +262,62 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setupNotifications();
     }, []);
 
+    const showNotice = (nextNotice: Notice) => {
+        setNotice(nextNotice);
+    };
+
+    const clearNotice = () => {
+        setNotice(null);
+        setHasOfflineNotice(false);
+    };
+
+    const isOfflineError = (error: any) => {
+        const code = error?.code;
+        return code === 'unavailable' || code === 'network-request-failed';
+    };
+
+    const showOfflineNotice = (retry: () => void) => {
+        if (hasOfflineNotice) return true;
+        setHasOfflineNotice(true);
+        showNotice({
+            type: 'info',
+            message: 'Parece que estás offline.',
+            actionLabel: 'Reintentar',
+            onAction: retry,
+            autoHide: false,
+        });
+        return true;
+    };
+
     const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
         if (!user) return;
 
         // Sanitize input
         const cleanName = name.replace(/<[^>]*>/g, '').trim();
-        if (!cleanName) return;
+        if (!cleanName) {
+            showNotice({ type: 'error', message: 'Escribe un nombre.', autoHide: true });
+            return;
+        }
+        if (cleanName.length > 80) {
+            showNotice({ type: 'error', message: 'El nombre es muy largo (máx. 80).', autoHide: true });
+            return;
+        }
+        if (!Number.isFinite(price) || price <= 0 || price > 1000000) {
+            showNotice({ type: 'error', message: 'Precio inválido.', autoHide: true });
+            return;
+        }
+        if (!Number.isFinite(duration) || duration <= 0) {
+            showNotice({ type: 'error', message: 'Duración inválida.', autoHide: true });
+            return;
+        }
+        if (unit === 'days' && duration > 3650) {
+            showNotice({ type: 'error', message: 'Duración demasiado alta.', autoHide: true });
+            return;
+        }
+        if (unit === 'minutes' && duration > 60 * 24 * 365) {
+            showNotice({ type: 'error', message: 'Duración demasiado alta.', autoHide: true });
+            return;
+        }
 
         const now = Date.now();
         let multiplier = 1000 * 60; // minutos
@@ -246,6 +326,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         const unlockAt = now + duration * multiplier;
+        let notificationId: string | undefined;
         const newItem: Item = {
             id: Math.random().toString(36).substr(2, 9),
             name: cleanName,
@@ -256,92 +337,218 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             category,
             categoryIcon,
             categoryColor,
+            notificationId,
         };
 
-        // Save to Firestore
-        const itemRef = doc(db, 'users', user.uid, 'items', newItem.id);
-        await setDoc(itemRef, newItem);
+        try {
+            // Schedule notification
+            if (Platform.OS !== 'web' && Notifications) {
+                try {
+                    notificationId = await Notifications.scheduleNotificationAsync({
+                        content: {
+                            title: "¡Tiempo cumplido!",
+                            body: `¿Realmente quieres comprar ${cleanName}?`,
+                            data: { itemId: newItem.id },
+                        },
+                        trigger: {
+                            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                            seconds: duration * (unit === 'days' ? 24 * 60 * 60 : 60),
+                            repeats: false,
+                        },
+                    });
+                    newItem.notificationId = notificationId;
+                } catch (error) {
+                    console.warn('Error scheduling notification:', error);
+                }
+            }
 
-        // Schedule notification
-        if (Platform.OS !== 'web' && Notifications) {
-            await Notifications.scheduleNotificationAsync({
-                content: {
-                    title: "¡Tiempo cumplido!",
-                    body: `¿Realmente quieres comprar ${cleanName}?`,
-                    data: { itemId: newItem.id },
-                },
-                trigger: {
-                    type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                    seconds: duration * (unit === 'days' ? 24 * 60 * 60 : 60),
-                    repeats: false,
-                },
+            // Save to Firestore
+            const itemRef = doc(db, 'users', user.uid, 'items', newItem.id);
+            await setDoc(itemRef, newItem);
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => addItem(name, price, duration, unit, category, categoryIcon, categoryColor));
+                return;
+            }
+            if (notificationId && Notifications) {
+                try {
+                    await Notifications.cancelScheduledNotificationAsync(notificationId);
+                } catch (cancelError) {
+                    console.warn('Error canceling notification after failure:', cancelError);
+                }
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo guardar el deseo. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => addItem(name, price, duration, unit, category, categoryIcon, categoryColor),
+                autoHide: false,
             });
         }
     };
 
     const resolveItem = async (id: string, decision: 'buy' | 'save') => {
         if (!user) return;
-
-        const item = items.find(i => i.id === id);
-        if (!item) return;
-
         const itemRef = doc(db, 'users', user.uid, 'items', id);
         const userRef = doc(db, 'users', user.uid);
-
         const resolvedAt = Date.now();
 
-        if (decision === 'save') {
-            const newSaved = moneySaved + item.price;
-            await updateDoc(itemRef, { status: 'saved', resolvedAt });
+        try {
+            const result = await runTransaction(db, async (transaction) => {
+                const itemSnap = await transaction.get(itemRef);
+                if (!itemSnap.exists()) return { earned: [] as string[], notificationId: null as string | null };
 
-            // Check achievements
-            const newAchievements = [...userAchievements];
-            const earned: string[] = [];
+                const item = itemSnap.data() as Item;
+                if (item.status !== 'waiting') return { earned: [] as string[], notificationId: null as string | null };
 
-            // Calculate total saved items count (including this one)
-            const savedCount = items.filter(i => i.status === 'saved').length + 1;
+                const userSnap = await transaction.get(userRef);
+                const userData = userSnap.exists() ? userSnap.data() : {};
 
-            if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); earned.push('Primer Ahorro'); }
-            if (savedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); earned.push('Coleccionista'); }
+                const currentSaved = Number(userData.moneySaved || 0);
+                const currentSpent = Number(userData.moneySpent || 0);
+                const currentSavedCount = Number(userData.savedCount || 0);
+                const currentAchievements: string[] = Array.isArray(userData.achievements) ? userData.achievements : [];
 
-            if (newSaved >= 100 && !newAchievements.includes('saver_100')) { newAchievements.push('saver_100'); earned.push('Ahorrador Novato'); }
-            if (newSaved >= 200 && !newAchievements.includes('saver_200')) { newAchievements.push('saver_200'); earned.push('Buen Comienzo'); }
-            if (newSaved >= 1000 && !newAchievements.includes('saver_1000')) { newAchievements.push('saver_1000'); earned.push('Gran Ahorrador'); }
-            if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); earned.push('Experto'); }
-            if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); earned.push('Magnate'); }
-            if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); earned.push('Leyenda'); }
+                const newAchievements = [...currentAchievements];
+                const newlyEarned: string[] = [];
 
-            if (earned.length > 0) {
+                if (decision === 'save') {
+                    const newSaved = currentSaved + item.price;
+                    const newSavedCount = currentSavedCount + 1;
+
+                    if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); newlyEarned.push('Primer Ahorro'); }
+                    if (newSavedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); newlyEarned.push('Coleccionista'); }
+
+                    if (newSaved >= 100 && !newAchievements.includes('saver_100')) { newAchievements.push('saver_100'); newlyEarned.push('Ahorrador Novato'); }
+                    if (newSaved >= 200 && !newAchievements.includes('saver_200')) { newAchievements.push('saver_200'); newlyEarned.push('Buen Comienzo'); }
+                    if (newSaved >= 1000 && !newAchievements.includes('saver_1000')) { newAchievements.push('saver_1000'); newlyEarned.push('Gran Ahorrador'); }
+                    if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); newlyEarned.push('Experto'); }
+                    if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); newlyEarned.push('Magnate'); }
+                    if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); newlyEarned.push('Leyenda'); }
+
+                    transaction.update(itemRef, { status: 'saved', resolvedAt });
+                    transaction.set(userRef, {
+                        moneySaved: newSaved,
+                        savedCount: newSavedCount,
+                        achievements: newAchievements,
+                    }, { merge: true });
+                } else {
+                    const newSpent = currentSpent + item.price;
+                    transaction.update(itemRef, { status: 'bought', resolvedAt });
+                    transaction.set(userRef, { moneySpent: newSpent }, { merge: true });
+                }
+
+                return { earned: newlyEarned, notificationId: item.notificationId || null };
+            });
+
+            if (result.notificationId && Notifications) {
+                try {
+                    await Notifications.cancelScheduledNotificationAsync(result.notificationId);
+                } catch (error) {
+                    console.warn('Error canceling notification:', error);
+                }
+            }
+
+            if (result.earned.length > 0) {
                 Alert.alert(
                     '¡Logro Desbloqueado!',
-                    `Has conseguido: ${earned.join(', ')}`,
+                    `Has conseguido: ${result.earned.join(', ')}`,
                     [{ text: 'Genial' }]
                 );
             }
 
-            await updateDoc(userRef, { moneySaved: newSaved, achievements: newAchievements });
-        } else {
-            await updateDoc(itemRef, { status: 'bought', resolvedAt });
-            await updateDoc(userRef, { moneySpent: moneySpent + item.price });
+            showNotice({
+                type: 'success',
+                message: decision === 'save' ? '¡Ahorro sumado!' : 'Compra registrada.',
+                autoHide: true,
+            });
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => resolveItem(id, decision));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo actualizar el deseo. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => resolveItem(id, decision),
+                autoHide: false,
+            });
         }
     };
 
     const deleteItem = async (id: string) => {
         if (!user) return;
-        await deleteDoc(doc(db, 'users', user.uid, 'items', id));
+        try {
+            if (Notifications) {
+                try {
+                    let notificationId = items.find(i => i.id === id)?.notificationId;
+                    if (!notificationId) {
+                        const itemSnap = await getDoc(doc(db, 'users', user.uid, 'items', id));
+                        if (itemSnap.exists()) {
+                            const data = itemSnap.data() as Item;
+                            notificationId = data.notificationId;
+                        }
+                    }
+                    if (notificationId) {
+                        await Notifications.cancelScheduledNotificationAsync(notificationId);
+                    }
+                } catch (error) {
+                    console.warn('Error canceling notification:', error);
+                }
+            }
+            await deleteDoc(doc(db, 'users', user.uid, 'items', id));
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => deleteItem(id));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo eliminar el deseo. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => deleteItem(id),
+                autoHide: false,
+            });
+        }
     };
 
     const clearAllData = async () => {
         // Caution: This deletes everything for the user in Firestore
         // For simplicity, we just reset stats and delete items one by one
         if (!user) return;
+        try {
+            const userRef = doc(db, 'users', user.uid);
+            await updateDoc(userRef, { moneySaved: 0, moneySpent: 0 });
 
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, { moneySaved: 0, moneySpent: 0 });
+            if (Notifications) {
+                for (const item of items) {
+                    if (item.notificationId) {
+                        try {
+                            await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+                        } catch (error) {
+                            console.warn('Error canceling notification:', error);
+                        }
+                    }
+                }
+            }
 
-        items.forEach(async (item) => {
-            await deleteDoc(doc(db, 'users', user.uid, 'items', item.id));
-        });
+            await Promise.all(
+                items.map((item) => deleteDoc(doc(db, 'users', user.uid, 'items', item.id)))
+            );
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => clearAllData());
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo borrar todo. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => clearAllData(),
+                autoHide: false,
+            });
+        }
     };
 
     const toggleTheme = async () => {
@@ -354,39 +561,107 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const addGoal = async (name: string, targetAmount: number, icon: string, color: string) => {
         if (!user) return;
-        const newGoal: Goal = {
-            id: Math.random().toString(36).substr(2, 9),
-            name,
-            targetAmount,
-            currentAmount: 0,
-            icon,
-            color,
-            createdAt: Date.now(),
-        };
-        await setDoc(doc(db, 'users', user.uid, 'goals', newGoal.id), newGoal);
+        const cleanName = name.replace(/<[^>]*>/g, '').trim();
+        if (!cleanName) {
+            showNotice({ type: 'error', message: 'Escribe un nombre.', autoHide: true });
+            return;
+        }
+        if (cleanName.length > 80) {
+            showNotice({ type: 'error', message: 'El nombre es muy largo (máx. 80).', autoHide: true });
+            return;
+        }
+        if (!Number.isFinite(targetAmount) || targetAmount <= 0 || targetAmount > 1000000) {
+            showNotice({ type: 'error', message: 'Monto inválido.', autoHide: true });
+            return;
+        }
+        try {
+            const newGoal: Goal = {
+                id: Math.random().toString(36).substr(2, 9),
+                name: cleanName,
+                targetAmount,
+                currentAmount: 0,
+                icon,
+                color,
+                createdAt: Date.now(),
+            };
+            await setDoc(doc(db, 'users', user.uid, 'goals', newGoal.id), newGoal);
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => addGoal(name, targetAmount, icon, color));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo crear la meta. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => addGoal(name, targetAmount, icon, color),
+                autoHide: false,
+            });
+        }
     };
 
     const deleteGoal = async (id: string) => {
         if (!user) return;
-        await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
+        try {
+            await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => deleteGoal(id));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo eliminar la meta. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => deleteGoal(id),
+                autoHide: false,
+            });
+        }
     };
 
     const allocateSavings = async (goalId: string, amount: number) => {
         if (!user) return;
-        const goalRef = doc(db, 'users', user.uid, 'goals', goalId);
-        const userRef = doc(db, 'users', user.uid);
-
-        // Transaction would be better, but keeping it simple
-        const goal = goals.find(g => g.id === goalId);
-        if (!goal) return;
-
-        if (moneySaved < amount) {
-            // Not enough savings
+        if (amount <= 0) {
+            showNotice({ type: 'error', message: 'Monto inválido.', autoHide: true });
             return;
         }
+        const goalRef = doc(db, 'users', user.uid, 'goals', goalId);
+        const userRef = doc(db, 'users', user.uid);
+        try {
+            const result = await runTransaction(db, async (transaction) => {
+                const goalSnap = await transaction.get(goalRef);
+                if (!goalSnap.exists()) return { insufficient: false };
 
-        await updateDoc(goalRef, { currentAmount: goal.currentAmount + amount });
-        await updateDoc(userRef, { moneySaved: moneySaved - amount });
+                const userSnap = await transaction.get(userRef);
+                const userData = userSnap.exists() ? userSnap.data() : {};
+                const currentSaved = Number(userData.moneySaved || 0);
+
+                if (currentSaved < amount) {
+                    return { insufficient: true };
+                }
+
+                const goal = goalSnap.data() as Goal;
+                transaction.update(goalRef, { currentAmount: goal.currentAmount + amount });
+                transaction.set(userRef, { moneySaved: currentSaved - amount }, { merge: true });
+                return { insufficient: false };
+            });
+
+            if (result?.insufficient) {
+                showNotice({ type: 'error', message: 'Fondos insuficientes.', autoHide: true });
+            }
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => allocateSavings(goalId, amount));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo asignar el ahorro. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => allocateSavings(goalId, amount),
+                autoHide: false,
+            });
+        }
     };
 
     const signIn = async (email: string, pass: string) => {
@@ -409,6 +684,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             user,
             theme,
             isLoading,
+            notice,
+            showNotice,
+            clearNotice,
             addItem,
             resolveItem,
             deleteItem,

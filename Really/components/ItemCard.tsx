@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert, useColorScheme } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Item, Theme } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text'; // Updated import
 import { ThemedButton } from './ThemedButton';
 import { Colors } from '../constants/Colors';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOutUp, Layout } from 'react-native-reanimated';
 
 interface ItemCardProps {
     item: Item;
@@ -55,7 +56,12 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
     const bg = AppTheme.surface;
 
     return (
-        <Animated.View entering={FadeInDown.springify()} style={[styles.card, { backgroundColor: bg, borderColor: AppTheme.border }]}>
+        <Animated.View
+            entering={FadeInDown.springify().duration(220)}
+            exiting={FadeOutUp.duration(180)}
+            layout={Layout.springify()}
+            style={[styles.card, { backgroundColor: bg, borderColor: AppTheme.border }]}
+        >
             <View style={styles.content}>
                 <View style={styles.header}>
                     <View style={[styles.iconContainer, { backgroundColor: item.categoryColor ? item.categoryColor + '20' : AppTheme.border }]}>
@@ -107,45 +113,33 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
 
             {isWaiting && isReady && (
                 <View style={styles.actions}>
-                    <View style={{ flex: 1 }}>
-                        <ThemedButton
-                            title="Comprar"
-                            variant="secondary"
-                            onPress={() => onResolve(item.id, 'buy')}
-                            style={{ backgroundColor: AppTheme.danger }} // Overwrite for 'buy' logic if needed, but secondary is mint. Wait. I should swap.
-                        // Buying is "bad" (spending), Saving is "good". 
-                        // Current I have Mint for Secondary. 
-                        // Let's use Ghost or Outline for Buy? Or a custom color.
-                        />
-                        {/* Actually, let's make Buy a less prominent button, and Save the Primary Action */}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <ThemedButton
-                            title="Ahorrar"
-                            variant="primary"
-                            onPress={() => onResolve(item.id, 'save')}
-                        />
-                    </View>
-                </View>
-            )}
-            {/* We need to correct the buttons. 
-                Buy -> Negative/Neutral action.
-                Save -> Positive action (Primary).
-             */}
-            {isWaiting && isReady && (
-                // Overwriting the above return to be cleaner
-                <View style={styles.actions}>
                     <ThemedButton
                         title="Comprar"
                         variant="ghost"
-                        onPress={() => onResolve(item.id, 'buy')}
+                        containerStyle={{ flex: 1 }}
+                        onPress={async () => {
+                            try {
+                                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                            } catch (error) {
+                                // No-op if haptics unavailable
+                            }
+                            onResolve(item.id, 'buy');
+                        }}
                         style={{ flex: 1, backgroundColor: AppTheme.background, borderWidth: 1, borderColor: AppTheme.border }}
                         textStyle={{ color: AppTheme.danger }}
                     />
                     <ThemedButton
                         title="Ahorrar"
                         variant="primary"
-                        onPress={() => onResolve(item.id, 'save')}
+                        containerStyle={{ flex: 1 }}
+                        onPress={async () => {
+                            try {
+                                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            } catch (error) {
+                                // No-op if haptics unavailable
+                            }
+                            onResolve(item.id, 'save');
+                        }}
                         style={{ flex: 1 }}
                     />
                 </View>
