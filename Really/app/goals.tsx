@@ -150,7 +150,7 @@ export default function GoalsScreen() {
                         end={{ x: 1, y: 1 }}
                     >
                         <ThemedText style={styles.savingsLabel}>Ahorros Disponibles</ThemedText>
-                        <ThemedText type="title" style={{ color: '#fff', fontSize: 36 }}>${moneySaved.toFixed(0)}</ThemedText>
+                        <ThemedText type="title" style={{ color: '#fff', fontSize: 36, lineHeight: 42 }}>${moneySaved.toFixed(0)}</ThemedText>
                     </LinearGradient>
                 </View>
 

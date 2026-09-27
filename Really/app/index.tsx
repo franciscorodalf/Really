@@ -209,7 +209,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     scrollContent: {
-        padding: 20,
+        paddingHorizontal: 20,
+        paddingTop: 12,
         paddingBottom: 140,
     },
     header: {
@@ -217,7 +218,6 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 24,
-        marginTop: 10,
     },
     headerButtons: {
         flexDirection: 'row',
@@ -264,7 +264,8 @@ const styles = StyleSheet.create({
     summaryAmount: {
         color: '#fff',
         fontSize: 24,
-        fontFamily: 'Outfit_700Bold', // Enforce specific bold
+        lineHeight: 30,
+        fontFamily: 'Poppins_700Bold', // Enforce specific bold
         letterSpacing: -0.5,
     },
     section: {

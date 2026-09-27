@@ -17,10 +17,17 @@ export default function AddScreen() {
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
     const [duration, setDuration] = useState(30);
-    const [unit, setUnit] = useState<'days' | 'minutes'>('days');
+    const [unit, setUnit] = useState<'days' | 'hours' | 'minutes'>('days');
     const [category, setCategory] = useState('Otros');
     const [categoryIcon, setCategoryIcon] = useState('pricetag-outline');
     const [categoryColor, setCategoryColor] = useState('#9E9E9E');
+
+    const UNIT_CONFIG = {
+        days: { label: 'Días', singular: 'día', plural: 'días', min: 1, max: 60, default: 30 },
+        hours: { label: 'Horas', singular: 'hora', plural: 'horas', min: 1, max: 48, default: 12 },
+        minutes: { label: 'Minutos', singular: 'minuto', plural: 'minutos', min: 1, max: 60, default: 30 },
+    } as const;
+    const UNIT_ORDER: ('days' | 'hours' | 'minutes')[] = ['days', 'hours', 'minutes'];
 
     const CATEGORIES = [
         { name: 'Tecnología', icon: 'laptop-outline', color: '#2196F3' },
@@ -51,13 +58,9 @@ export default function AddScreen() {
     };
 
     const toggleUnit = () => {
-        if (unit === 'days') {
-            setUnit('minutes');
-            setDuration(30);
-        } else {
-            setUnit('days');
-            setDuration(30);
-        }
+        const nextUnit = UNIT_ORDER[(UNIT_ORDER.indexOf(unit) + 1) % UNIT_ORDER.length];
+        setUnit(nextUnit);
+        setDuration(UNIT_CONFIG[nextUnit].default);
     };
 
     return (
@@ -140,19 +143,19 @@ export default function AddScreen() {
                             <View style={styles.sliderHeader}>
                                 <ThemedText style={styles.label}>Tiempo de espera</ThemedText>
                                 <TouchableOpacity onPress={toggleUnit} style={[styles.unitToggle, { backgroundColor: AppTheme.surface }]}>
-                                    <ThemedText style={[styles.unitText, { color: AppTheme.text }]}>{unit === 'days' ? 'Días' : 'Minutos'}</ThemedText>
+                                    <ThemedText style={[styles.unitText, { color: AppTheme.text }]}>{UNIT_CONFIG[unit].label}</ThemedText>
                                     <Ionicons name="swap-vertical" size={16} color={AppTheme.subtext} />
                                 </TouchableOpacity>
                             </View>
 
-                            <ThemedText type="title" style={{ fontSize: 40, marginVertical: 10, color: AppTheme.text }}>
-                                {duration} <ThemedText style={{ fontSize: 20, color: AppTheme.subtext }}>{unit === 'days' ? (duration === 1 ? 'día' : 'días') : (duration === 1 ? 'minuto' : 'minutos')}</ThemedText>
+                            <ThemedText style={[styles.durationNumber, { color: AppTheme.text }]}>
+                                {duration} <ThemedText style={{ fontSize: 20, lineHeight: 26, color: AppTheme.subtext }}>{duration === 1 ? UNIT_CONFIG[unit].singular : UNIT_CONFIG[unit].plural}</ThemedText>
                             </ThemedText>
 
                             <Slider
                                 style={{ width: '100%', height: 40 }}
-                                minimumValue={1}
-                                maximumValue={60}
+                                minimumValue={UNIT_CONFIG[unit].min}
+                                maximumValue={UNIT_CONFIG[unit].max}
                                 step={1}
                                 value={duration}
                                 onValueChange={setDuration}
@@ -161,7 +164,7 @@ export default function AddScreen() {
                                 thumbTintColor={AppTheme.primary}
                             />
                             <ThemedText style={styles.helperText}>
-                                Te preguntaremos de nuevo en {duration} {unit === 'days' ? 'días' : 'minutos'}.
+                                Te preguntaremos de nuevo en {duration} {duration === 1 ? UNIT_CONFIG[unit].singular : UNIT_CONFIG[unit].plural}.
                             </ThemedText>
                         </View>
 
@@ -209,7 +212,7 @@ const styles = StyleSheet.create({
     input: {
         fontSize: 28,
         fontWeight: '500',
-        fontFamily: 'Outfit_500Medium',
+        fontFamily: 'Poppins_500Medium',
         borderBottomWidth: 1,
         paddingVertical: 12,
     },
@@ -230,6 +233,12 @@ const styles = StyleSheet.create({
     unitText: {
         fontSize: 14,
         fontWeight: '600',
+    },
+    durationNumber: {
+        fontSize: 40,
+        lineHeight: 48,
+        fontFamily: 'Poppins_700Bold',
+        marginVertical: 10,
     },
     helperText: {
         color: '#999',

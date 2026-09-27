@@ -161,18 +161,22 @@ export default function StatsScreen() {
             {/* Tabs */}
             <View style={styles.tabsContainer}>
                 <TouchableOpacity
-                    style={[styles.tab, isSaved && styles.activeTab]}
+                    style={[
+                        styles.tab,
+                        { backgroundColor: isSaved ? AppTheme.secondary : AppTheme.surface },
+                    ]}
                     onPress={() => setCurrentType('saved')}
                 >
-                    <ThemedText style={[styles.tabText, isSaved ? { color: AppTheme.secondary } : { color: AppTheme.subtext }]}>Ahorrado</ThemedText>
-                    {isSaved && <View style={[styles.activeIndicator, { backgroundColor: AppTheme.secondary }]} />}
+                    <ThemedText style={[styles.tabText, { color: isSaved ? '#fff' : AppTheme.subtext }]}>Ahorrado</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[styles.tab, !isSaved && styles.activeTab]}
+                    style={[
+                        styles.tab,
+                        { backgroundColor: !isSaved ? AppTheme.danger : AppTheme.surface },
+                    ]}
                     onPress={() => setCurrentType('spent')}
                 >
-                    <ThemedText style={[styles.tabText, !isSaved ? { color: AppTheme.danger } : { color: AppTheme.subtext }]}>Gastado</ThemedText>
-                    {!isSaved && <View style={[styles.activeIndicator, { backgroundColor: AppTheme.danger }]} />}
+                    <ThemedText style={[styles.tabText, { color: !isSaved ? '#fff' : AppTheme.subtext }]}>Gastado</ThemedText>
                 </TouchableOpacity>
             </View>
 
@@ -210,9 +214,9 @@ export default function StatsScreen() {
                             disabledArrowColor: '#d9e1e8',
                             monthTextColor: AppTheme.text,
                             indicatorColor: accentColor,
-                            textDayFontFamily: 'Outfit_400Regular',
-                            textMonthFontFamily: 'Outfit_600SemiBold',
-                            textDayHeaderFontFamily: 'Outfit_500Medium',
+                            textDayFontFamily: 'Poppins_400Regular',
+                            textMonthFontFamily: 'Poppins_600SemiBold',
+                            textDayHeaderFontFamily: 'Poppins_500Medium',
                         }}
                         markedDates={markedDates}
                         onDayPress={(day: { dateString: React.SetStateAction<string>; }) => {
@@ -388,28 +392,19 @@ const styles = StyleSheet.create({
     },
     tabsContainer: {
         flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 12,
         paddingHorizontal: 20,
         marginBottom: 10,
     },
     tab: {
-        marginRight: 24,
-        paddingBottom: 8,
-        position: 'relative',
-    },
-    activeTab: {
-        // styles for active tab container if needed
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 20,
     },
     tabText: {
         fontSize: 16,
         fontWeight: '600',
-    },
-    activeIndicator: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 3,
-        borderRadius: 1.5,
     },
     backButton: {
         padding: 4,
@@ -438,7 +433,7 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 36,
         fontWeight: 'bold',
-        fontFamily: 'Outfit_700Bold',
+        fontFamily: 'Poppins_700Bold',
         lineHeight: 44,
     },
     calendarContainer: {
