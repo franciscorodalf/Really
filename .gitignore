@@ -1,0 +1,4 @@
+# Herramientas locales/agentes, no forman parte del proyecto
+.codex/
+.superpowers/
+.expo/
