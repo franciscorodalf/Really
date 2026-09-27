@@ -20,7 +20,7 @@ jest.mock('firebase/auth', () => ({
 
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
-    doc: jest.fn(),
+    doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
     setDoc: jest.fn(),
     onSnapshot: jest.fn((ref, callback) => {
         // Simulate empty data initially

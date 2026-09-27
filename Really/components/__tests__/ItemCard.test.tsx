@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { ItemCard } from '../ItemCard';
 import { Item } from '../../context/StoreContext';
 
@@ -38,7 +38,7 @@ describe('ItemCard', () => {
         expect(getByText('Ahorrar')).toBeTruthy();
     });
 
-    it('calls onResolve when buttons are pressed', () => {
+    it('calls onResolve when buttons are pressed', async () => {
         const readyItem: Item = {
             ...mockItem,
             unlockAt: Date.now() - 1000, // Past
@@ -50,9 +50,9 @@ describe('ItemCard', () => {
         );
 
         fireEvent.press(getByText('Comprar'));
-        expect(onResolveMock).toHaveBeenCalledWith('1', 'buy');
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'buy'));
 
         fireEvent.press(getByText('Ahorrar'));
-        expect(onResolveMock).toHaveBeenCalledWith('1', 'save');
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'save'));
     });
 });
