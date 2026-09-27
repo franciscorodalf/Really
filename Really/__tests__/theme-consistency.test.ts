@@ -9,6 +9,8 @@ const FILES_THAT_MUST_NOT_USE_OS_COLOR_SCHEME = [
     'app/stats.tsx',
     'app/settings.tsx',
     'components/ThemedButton.tsx',
+    'components/ItemCard.tsx',
+    'components/NoticeBanner.tsx',
 ];
 
 describe('consistencia del tema en toda la app', () => {

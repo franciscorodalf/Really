@@ -28,11 +28,13 @@ export function ThemedButton({ title, variant = 'primary', onPress, style, textS
     });
 
     const handlePressIn = () => {
+        // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue.value assignment is the documented mutation API (https://github.com/facebook/react/issues/34776), not a React state mutation.
         scale.value = withSpring(0.96);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
     const handlePressOut = () => {
+        // eslint-disable-next-line react-hooks/immutability -- Reanimated SharedValue.value assignment is the documented mutation API (https://github.com/facebook/react/issues/34776), not a React state mutation.
         scale.value = withSpring(1);
     };
 

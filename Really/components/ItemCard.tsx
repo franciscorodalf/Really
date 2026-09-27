@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Alert, useColorScheme } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Item, Theme } from '../context/StoreContext';
+import { Item, Theme, useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './themed-text'; // Updated import
 import { ThemedButton } from './ThemedButton';
@@ -18,7 +18,7 @@ interface ItemCardProps {
 export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, theme = 'light' }) => {
     const [timeLeft, setTimeLeft] = useState<string>('');
     const [isReady, setIsReady] = useState(false);
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     useEffect(() => {
