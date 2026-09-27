@@ -16,7 +16,7 @@ export default function Index() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { items, moneySaved, moneySpent, resolveItem, deleteItem, user, theme, isLoading } = useStore();
-    const [now, setNow] = useState(Date.now());
+    const [now, setNow] = useState(() => Date.now());
     const [refreshing, setRefreshing] = useState(false);
     const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
 

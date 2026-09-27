@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform, Dimensions, useColorScheme } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore, Item } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,11 +28,10 @@ export default function StatsScreen() {
     const router = useRouter();
     const { type } = useLocalSearchParams<{ type: 'saved' | 'spent' }>();
     const [currentType, setCurrentType] = useState<'saved' | 'spent'>(type || 'saved');
-    const { items, moneySaved, moneySpent } = useStore();
+    const { items, moneySaved, moneySpent, theme: colorScheme } = useStore();
     const [selectedDate, setSelectedDate] = useState('');
     const [showAnalysis, setShowAnalysis] = useState(false);
 
-    const colorScheme = useColorScheme() ?? 'light';
     const AppTheme = Colors[colorScheme];
 
     const isSaved = currentType === 'saved';

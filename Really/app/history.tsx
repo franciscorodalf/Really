@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, useColorScheme } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +11,7 @@ import { ThemedText } from '../components/themed-text';
 export default function HistoryScreen() {
     const router = useRouter();
     const { items, resolveItem } = useStore();
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const historyItems = items.filter(

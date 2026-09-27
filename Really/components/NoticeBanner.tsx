@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, View, useColorScheme } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { SlideInDown, SlideOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from './themed-text';
 import { Colors } from '../constants/Colors';
-import { Notice } from '../context/StoreContext';
+import { Notice, useStore } from '../context/StoreContext';
 
 interface NoticeBannerProps {
     notice: Notice | null;
@@ -13,7 +13,7 @@ interface NoticeBannerProps {
 
 export function NoticeBanner({ notice, onDismiss }: NoticeBannerProps) {
     const insets = useSafeAreaInsets();
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const theme = Colors[colorScheme];
 
     useEffect(() => {

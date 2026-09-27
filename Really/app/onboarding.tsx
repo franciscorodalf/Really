@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity, useColorScheme } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import { View, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import Animated, { useAnimatedScrollHandler, useSharedValue, useAnimatedStyle, i
 import { LinearGradient } from 'expo-linear-gradient';
 import { ThemedText } from '../components/themed-text';
 import { Colors } from '../constants/Colors';
+import { useStore } from '../context/StoreContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,7 +34,7 @@ const SLIDES = [
 ];
 
 const Slide = ({ item, index, scrollX }: { item: typeof SLIDES[0], index: number, scrollX: SharedValue<number> }) => {
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const rnStyle = useAnimatedStyle(() => {
@@ -77,12 +78,39 @@ const Slide = ({ item, index, scrollX }: { item: typeof SLIDES[0], index: number
     );
 };
 
+const PaginationDot = ({ index, scrollX, color }: { index: number, scrollX: SharedValue<number>, color: string }) => {
+    const animatedDotStyle = useAnimatedStyle(() => {
+        const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+        const widthDot = interpolate(
+            scrollX.value,
+            inputRange,
+            [8, 24, 8],
+            Extrapolation.CLAMP
+        );
+        const opacity = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.5, 1, 0.5],
+            Extrapolation.CLAMP
+        );
+        return {
+            width: widthDot,
+            opacity,
+            backgroundColor: color
+        };
+    });
+
+    return (
+        <Animated.View style={[styles.dot, animatedDotStyle]} />
+    );
+};
+
 export default function OnboardingScreen() {
     const router = useRouter();
     const [currentIndex, setCurrentIndex] = useState(0);
     const flatListRef = useRef<Animated.FlatList<any>>(null);
     const scrollX = useSharedValue(0);
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const scrollHandler = useAnimatedScrollHandler({
@@ -113,11 +141,11 @@ export default function OnboardingScreen() {
         }
     };
 
-    const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
         if (viewableItems.length > 0) {
             setCurrentIndex(viewableItems[0].index || 0);
         }
-    }).current;
+    }, []);
 
     return (
         <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
@@ -141,35 +169,9 @@ export default function OnboardingScreen() {
 
             <View style={styles.footer}>
                 <View style={styles.pagination}>
-                    {SLIDES.map((_, index) => {
-                        const animatedDotStyle = useAnimatedStyle(() => {
-                            const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
-                            const widthDot = interpolate(
-                                scrollX.value,
-                                inputRange,
-                                [8, 24, 8],
-                                Extrapolation.CLAMP
-                            );
-                            const opacity = interpolate(
-                                scrollX.value,
-                                inputRange,
-                                [0.5, 1, 0.5],
-                                Extrapolation.CLAMP
-                            );
-                            return {
-                                width: widthDot,
-                                opacity,
-                                backgroundColor: AppTheme.text
-                            };
-                        });
-
-                        return (
-                            <Animated.View
-                                key={index}
-                                style={[styles.dot, animatedDotStyle]}
-                            />
-                        );
-                    })}
+                    {SLIDES.map((_, index) => (
+                        <PaginationDot key={index} index={index} scrollX={scrollX} color={AppTheme.text} />
+                    ))}
                 </View>
 
                 <TouchableOpacity

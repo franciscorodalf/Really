@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithStore } from '../../test-utils/renderWithStore';
 import { ItemCard } from '../ItemCard';
 import { Item } from '../../context/StoreContext';
 
@@ -15,7 +16,7 @@ const mockItem: Item = {
 
 describe('ItemCard', () => {
     it('renders item details correctly', () => {
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={mockItem} onResolve={() => { }} onDelete={() => { }} />
         );
 
@@ -29,7 +30,7 @@ describe('ItemCard', () => {
             unlockAt: Date.now() - 1000, // Past
         };
 
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={readyItem} onResolve={() => { }} onDelete={() => { }} />
         );
 
@@ -38,21 +39,21 @@ describe('ItemCard', () => {
         expect(getByText('Ahorrar')).toBeTruthy();
     });
 
-    it('calls onResolve when buttons are pressed', () => {
+    it('calls onResolve when buttons are pressed', async () => {
         const readyItem: Item = {
             ...mockItem,
             unlockAt: Date.now() - 1000, // Past
         };
         const onResolveMock = jest.fn();
 
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={readyItem} onResolve={onResolveMock} onDelete={() => { }} />
         );
 
         fireEvent.press(getByText('Comprar'));
-        expect(onResolveMock).toHaveBeenCalledWith('1', 'buy');
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'buy'));
 
         fireEvent.press(getByText('Ahorrar'));
-        expect(onResolveMock).toHaveBeenCalledWith('1', 'save');
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'save'));
     });
 });

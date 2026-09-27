@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity, Alert, Platform, ScrollView, KeyboardAvoidingView, useColorScheme } from 'react-native';
+import { View, TextInput, StyleSheet, TouchableOpacity, Alert, Platform, ScrollView, KeyboardAvoidingView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import Slider from '@react-native-community/slider';
@@ -11,8 +11,7 @@ import { ThemedButton } from '../components/ThemedButton';
 
 export default function AddScreen() {
     const router = useRouter();
-    const { addItem } = useStore();
-    const colorScheme = useColorScheme() ?? 'light';
+    const { addItem, theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const [name, setName] = useState('');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform, useColorScheme } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,8 +11,7 @@ import { ThemedText } from '../components/themed-text';
 
 export default function SettingsScreen() {
     const router = useRouter();
-    const { clearAllData, toggleTheme, signOut, user } = useStore();
-    const colorScheme = useColorScheme() ?? 'light';
+    const { clearAllData, toggleTheme, signOut, user, theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const isDark = colorScheme === 'dark';
