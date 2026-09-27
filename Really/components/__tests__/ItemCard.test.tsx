@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithStore } from '../../test-utils/renderWithStore';
 import { ItemCard } from '../ItemCard';
 import { Item } from '../../context/StoreContext';
 
@@ -15,7 +16,7 @@ const mockItem: Item = {
 
 describe('ItemCard', () => {
     it('renders item details correctly', () => {
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={mockItem} onResolve={() => { }} onDelete={() => { }} />
         );
 
@@ -29,7 +30,7 @@ describe('ItemCard', () => {
             unlockAt: Date.now() - 1000, // Past
         };
 
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={readyItem} onResolve={() => { }} onDelete={() => { }} />
         );
 
@@ -45,7 +46,7 @@ describe('ItemCard', () => {
         };
         const onResolveMock = jest.fn();
 
-        const { getByText } = render(
+        const { getByText } = renderWithStore(
             <ItemCard item={readyItem} onResolve={onResolveMock} onDelete={() => { }} />
         );
 
