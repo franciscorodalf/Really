@@ -109,6 +109,91 @@ git commit -m "chore: remove unused Expo boilerplate and orphan root lockfile"
 
 ---
 
+### Task 1.5: Arreglar bugs de higiene de tests descubiertos en la baseline
+
+> Añadida durante la ejecución: el baseline de Task 1 reveló que `npm test` ya fallaba (2/2 suites, 5/7 tests) y `npm run lint` ya tenía 1 error, antes de tocar nada de este plan. Ambos son bugs reales en los tests, no en el producto. Se documentan y arreglan aquí, con su propio ciclo de test/revisión, para que el criterio "verde" de las Tasks 2-5 sea real y no falso desde el principio.
+
+**Files:**
+- Modify: `Really/components/__tests__/ItemCard.test.tsx`
+- Modify: `Really/context/__tests__/StoreContext.test.tsx`
+
+**Interfaces:**
+- Consumes: nada nuevo — son los mismos dos archivos de test ya existentes.
+- Produces: una baseline de test realmente verde (2/2 suites, 7/7 tests) para que Task 2 (que reescribe `ItemCard.test.tsx` entero) y Task 5 (CI) partan de una base honesta.
+
+- [ ] **Step 1: Confirmar y diagnosticar los 2 fallos (ya hecho por el controlador, repetir para tener evidencia propia)**
+
+Run: `cd Really && npx jest --verbose 2>&1 | tail -60`
+Expected: **FAIL** — 2 suites, 2 tests fallando:
+1. `ItemCard.test.tsx › calls onResolve when buttons are pressed` — `onResolveMock` recibe 0 llamadas. Causa: los `onPress` de `ItemCard.tsx` son `async` (esperan `Haptics.notificationAsync` antes de llamar a `onResolve`), y el test hace la aserción justo después de `fireEvent.press(...)`, antes de que corra el microtask.
+2. `StoreContext.test.tsx:133` — `transaction.update` recibe `undefined` como primer argumento en vez de "anything". Causa: el mock de `firebase/firestore` define `doc: jest.fn()` sin valor de retorno, así que cualquier `doc(db, ...)` en `StoreContext.tsx` devuelve `undefined`.
+
+- [ ] **Step 2: Arreglar `ItemCard.test.tsx` — esperar el handler async**
+
+Modify `Really/components/__tests__/ItemCard.test.tsx`. Añadir `waitFor` al import de `@testing-library/react-native`, hacer el test `async`, y esperar cada llamada:
+
+```tsx
+import React from 'react';
+import { fireEvent, waitFor } from '@testing-library/react-native';
+import { ItemCard } from '../ItemCard';
+import { Item } from '../../context/StoreContext';
+```
+
+Y el tercer test:
+
+```tsx
+    it('calls onResolve when buttons are pressed', async () => {
+        const readyItem: Item = {
+            ...mockItem,
+            unlockAt: Date.now() - 1000, // Past
+        };
+        const onResolveMock = jest.fn();
+
+        const { getByText } = render(
+            <ItemCard item={readyItem} onResolve={onResolveMock} onDelete={() => { }} />
+        );
+
+        fireEvent.press(getByText('Comprar'));
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'buy'));
+
+        fireEvent.press(getByText('Ahorrar'));
+        await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'save'));
+    });
+```
+
+(Los otros dos tests del archivo no cambian; `render` sigue viniendo de `@testing-library/react-native` sin cambios en este task — Task 2 es quien más adelante cambia `render` por `renderWithStore`.)
+
+- [ ] **Step 3: Arreglar el mock de `doc` en `StoreContext.test.tsx`**
+
+Modify `Really/context/__tests__/StoreContext.test.tsx`. Cambiar:
+
+```tsx
+    doc: jest.fn(),
+```
+
+por:
+
+```tsx
+    doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
+```
+
+- [ ] **Step 4: Confirmar que ambos suites quedan en verde**
+
+Run: `cd Really && npm test`
+Expected: **PASS** — 2/2 suites, 7/7 tests.
+
+Run: `cd Really && npx tsc --noEmit && npm run lint`
+Expected: mismo resultado que antes en `tsc` (sin errores); el error de lint preexistente en `onboarding.tsx` sigue ahí (no es parte de este task — se deja tal cual, fuera de alcance).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A
+git commit -m "test: fix pre-existing async and mock bugs in ItemCard/StoreContext tests"
+```
+
+---
+
 ### Task 2: Unificar el theming en la fuente de verdad de la app
 
 **Files:**
@@ -150,7 +235,7 @@ jest.mock('firebase/auth', () => ({
 
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
-    doc: jest.fn(),
+    doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
     setDoc: jest.fn(),
     onSnapshot: jest.fn((ref, callback) => {
         // Simula que el usuario todavía no tiene documento en Firestore.
