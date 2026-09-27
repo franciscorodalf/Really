@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity, useColorScheme } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import Animated, { useAnimatedScrollHandler, useSharedValue, useAnimatedStyle, i
 import { LinearGradient } from 'expo-linear-gradient';
 import { ThemedText } from '../components/themed-text';
 import { Colors } from '../constants/Colors';
+import { useStore } from '../context/StoreContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,7 +34,7 @@ const SLIDES = [
 ];
 
 const Slide = ({ item, index, scrollX }: { item: typeof SLIDES[0], index: number, scrollX: SharedValue<number> }) => {
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const rnStyle = useAnimatedStyle(() => {
@@ -82,7 +83,7 @@ export default function OnboardingScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const flatListRef = useRef<Animated.FlatList<any>>(null);
     const scrollX = useSharedValue(0);
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const scrollHandler = useAnimatedScrollHandler({

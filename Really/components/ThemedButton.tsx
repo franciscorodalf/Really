@@ -4,8 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Colors } from '@/constants/Colors';
-import { useColorScheme } from 'react-native';
-import { useThemeColor } from '@/hooks/use-theme-color';
+import { useStore } from '@/context/StoreContext';
 
 interface ThemedButtonProps extends TouchableOpacityProps {
     title: string;
@@ -19,7 +18,7 @@ interface ThemedButtonProps extends TouchableOpacityProps {
 
 export function ThemedButton({ title, variant = 'primary', onPress, style, textStyle, containerStyle, icon, ...pressableProps }: ThemedButtonProps) {
     const scale = useSharedValue(1);
-    const colorScheme = useColorScheme() ?? 'light';
+    const { theme: colorScheme } = useStore();
     const theme = Colors[colorScheme];
 
     const animatedStyle = useAnimatedStyle(() => {

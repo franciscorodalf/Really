@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, useColorScheme } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useStore, Goal } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -65,7 +65,7 @@ const GoalCard = ({ goal, onDelete, onDeposit, theme }: { goal: Goal, onDelete: 
 
 export default function GoalsScreen() {
     const router = useRouter();
-    const { goals, addGoal, deleteGoal, allocateSavings, moneySaved } = useStore();
+    const { goals, addGoal, deleteGoal, allocateSavings, moneySaved, theme: colorScheme } = useStore();
     const [modalVisible, setModalVisible] = useState(false);
     const [depositModalVisible, setDepositModalVisible] = useState(false);
     const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -76,7 +76,6 @@ export default function GoalsScreen() {
     const [selectedIcon, setSelectedIcon] = useState('airplane');
     const [selectedColor, setSelectedColor] = useState('#2196F3');
 
-    const colorScheme = useColorScheme() ?? 'light';
     const AppTheme = Colors[colorScheme];
 
     const handleAddGoal = async () => {
