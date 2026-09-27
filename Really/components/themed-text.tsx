@@ -37,26 +37,26 @@ const styles = StyleSheet.create({
   default: {
     fontSize: 16,
     lineHeight: 24,
-    fontFamily: 'Outfit_400Regular',
+    fontFamily: 'Poppins_400Regular',
   },
   defaultSemiBold: {
     fontSize: 16,
     lineHeight: 24,
-    fontFamily: 'Outfit_500Medium',
+    fontFamily: 'Poppins_500Medium',
   },
   title: {
     fontSize: 32,
-    fontFamily: 'Outfit_700Bold',
-    lineHeight: 32,
+    fontFamily: 'Poppins_700Bold',
+    lineHeight: 40,
   },
   subtitle: {
     fontSize: 20,
-    fontFamily: 'Outfit_700Bold',
+    fontFamily: 'Poppins_700Bold',
   },
   link: {
     lineHeight: 30,
     fontSize: 16,
     color: '#0a7ea4',
-    fontFamily: 'Outfit_400Regular',
+    fontFamily: 'Poppins_400Regular',
   },
 });

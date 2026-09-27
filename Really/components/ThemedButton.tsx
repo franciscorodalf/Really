@@ -87,7 +87,7 @@ export function ThemedButton({ title, variant = 'primary', onPress, style, textS
                         style,
                     ]}
                 >
-                    <Text style={[styles.text, { color: textColor, fontFamily: 'Outfit_700Bold' }, textStyle]}>
+                    <Text style={[styles.text, { color: textColor, fontFamily: 'Poppins_700Bold' }, textStyle]}>
                         {icon && <>{icon}  </>}
                         {title}
                     </Text>

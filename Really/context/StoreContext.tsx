@@ -12,7 +12,7 @@ if (Platform.OS !== 'android' || !isExpoGo) {
     }
 }
 import * as SplashScreen from 'expo-splash-screen';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
 import {
     onAuthStateChanged,
@@ -117,7 +117,7 @@ interface StoreContextType {
     notice: Notice | null;
     showNotice: (notice: Notice) => void;
     clearNotice: () => void;
-    addItem: (name: string, price: number, duration: number, unit: 'days' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
+    addItem: (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
     clearAllData: () => Promise<void>;
@@ -289,7 +289,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return true;
     };
 
-    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
+    const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
         if (!user) return;
 
         // Sanitize input
@@ -314,6 +314,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Duración demasiado alta.', autoHide: true });
             return;
         }
+        if (unit === 'hours' && duration > 24 * 365) {
+            showNotice({ type: 'error', message: 'Duración demasiado alta.', autoHide: true });
+            return;
+        }
         if (unit === 'minutes' && duration > 60 * 24 * 365) {
             showNotice({ type: 'error', message: 'Duración demasiado alta.', autoHide: true });
             return;
@@ -323,6 +327,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         let multiplier = 1000 * 60; // minutos
         if (unit === 'days') {
             multiplier = 1000 * 60 * 60 * 24;
+        } else if (unit === 'hours') {
+            multiplier = 1000 * 60 * 60;
         }
 
         const unlockAt = now + duration * multiplier;
@@ -352,7 +358,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         },
                         trigger: {
                             type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                            seconds: duration * (unit === 'days' ? 24 * 60 * 60 : 60),
+                            seconds: duration * (unit === 'days' ? 24 * 60 * 60 : unit === 'hours' ? 60 * 60 : 60),
                             repeats: false,
                         },
                     });
@@ -450,18 +456,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
 
             if (result.earned.length > 0) {
-                Alert.alert(
-                    '¡Logro Desbloqueado!',
-                    `Has conseguido: ${result.earned.join(', ')}`,
-                    [{ text: 'Genial' }]
-                );
+                showNotice({
+                    type: 'info',
+                    message: `¡Logro desbloqueado! ${result.earned.join(', ')}`,
+                    autoHide: true,
+                });
+            } else {
+                showNotice({
+                    type: 'success',
+                    message: decision === 'save' ? '¡Ahorro sumado!' : 'Compra registrada.',
+                    autoHide: true,
+                });
             }
-
-            showNotice({
-                type: 'success',
-                message: decision === 'save' ? '¡Ahorro sumado!' : 'Compra registrada.',
-                autoHide: true,
-            });
         } catch (error) {
             if (isOfflineError(error)) {
                 showOfflineNotice(() => resolveItem(id, decision));

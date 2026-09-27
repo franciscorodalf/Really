@@ -9,7 +9,7 @@ export const Colors = {
         tint: tintColorLight,
         tabIconDefault: '#ccc',
         tabIconSelected: tintColorLight,
-        surface: '#f8f9fa',
+        surface: '#EFEFF4',
         success: '#00B894',
         danger: '#FF7675',
         border: '#eee',
