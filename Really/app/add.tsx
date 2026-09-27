@@ -5,12 +5,14 @@ import { useStore } from '../context/StoreContext';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { ThemedButton } from '../components/ThemedButton';
 
 export default function AddScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const { addItem, theme: colorScheme } = useStore();
     const AppTheme = Colors[colorScheme];
 
@@ -64,7 +66,7 @@ export default function AddScreen() {
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
+        <View style={[styles.container, { backgroundColor: AppTheme.background, paddingTop: insets.top + 12 }]}>
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -183,14 +185,13 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         paddingHorizontal: 24,
-        paddingTop: 24,
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 30,
-        marginTop: Platform.OS === 'android' ? 40 : 10,
+        marginTop: Platform.OS === 'android' ? 40 : 0,
     },
     closeButton: {
         padding: 4,
