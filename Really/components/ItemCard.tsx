@@ -7,6 +7,7 @@ import { ThemedText } from './themed-text'; // Updated import
 import { ThemedButton } from './ThemedButton';
 import { Colors } from '../constants/Colors';
 import Animated, { FadeInDown, FadeOutUp, Layout } from 'react-native-reanimated';
+import { formatWorkHours } from '../utils/workHours';
 
 interface ItemCardProps {
     item: Item;
@@ -18,7 +19,7 @@ interface ItemCardProps {
 export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, theme = 'light' }) => {
     const [timeLeft, setTimeLeft] = useState<string>('');
     const [isReady, setIsReady] = useState(false);
-    const { theme: colorScheme } = useStore();
+    const { theme: colorScheme, hourlyWage } = useStore();
     const AppTheme = Colors[colorScheme];
 
     useEffect(() => {
@@ -54,6 +55,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
     const isWaiting = item.status === 'waiting';
 
     const bg = AppTheme.surface;
+    const workHoursLabel = formatWorkHours(item.price, hourlyWage);
 
     return (
         <Animated.View
@@ -73,7 +75,12 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
                             {new Date(item.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         </ThemedText>
                     </View>
-                    <ThemedText type="defaultSemiBold" style={{ fontSize: 18 }}>${item.price.toFixed(2)}</ThemedText>
+                    <View style={{ alignItems: 'flex-end' }}>
+                        <ThemedText type="defaultSemiBold" style={{ fontSize: 18 }}>${item.price.toFixed(2)}</ThemedText>
+                        {workHoursLabel && (
+                            <ThemedText style={{ fontSize: 11, color: AppTheme.subtext, marginTop: 2 }}>{workHoursLabel}</ThemedText>
+                        )}
+                    </View>
 
                     {isWaiting && onDelete && (
                         <TouchableOpacity onPress={() => {
