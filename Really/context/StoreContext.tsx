@@ -113,6 +113,7 @@ interface StoreContextType {
     moneySpent: number;
     user: User | null;
     theme: Theme;
+    hourlyWage: number | null;
     isLoading: boolean;
     notice: Notice | null;
     showNotice: (notice: Notice) => void;
@@ -125,6 +126,7 @@ interface StoreContextType {
     signUp: (email: string, pass: string) => Promise<void>;
     signOut: () => Promise<void>;
     toggleTheme: () => Promise<void>;
+    setHourlyWage: (wage: number | null) => Promise<void>;
     addGoal: (name: string, targetAmount: number, icon: string, color: string) => Promise<void>;
     deleteGoal: (id: string) => Promise<void>;
     allocateSavings: (goalId: string, amount: number) => Promise<void>;
@@ -149,6 +151,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [savedCount, setSavedCount] = useState<number | null>(null);
     const [user, setUser] = useState<User | null>(null);
     const [theme, setTheme] = useState<Theme>('light');
+    const [hourlyWage, setHourlyWageState] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
     const [notice, setNotice] = useState<Notice | null>(null);
@@ -171,6 +174,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setMoneySpent(0);
             setSavedCount(null);
             setHasItemsLoaded(false);
+            setHourlyWageState(null);
             return;
         }
 
@@ -185,6 +189,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setTheme(data.theme || 'light');
                 setUserAchievements(data.achievements || []);
                 setSavedCount(typeof data.savedCount === 'number' ? data.savedCount : null);
+                setHourlyWageState(typeof data.hourlyWage === 'number' ? data.hourlyWage : null);
 
                 // Ensure supportId is saved
                 if (!data.supportId) {
@@ -565,6 +570,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setTheme(newTheme);
     };
 
+    const setHourlyWage = async (wage: number | null) => {
+        if (!user) return;
+        if (wage !== null && (!Number.isFinite(wage) || wage <= 0 || wage > 100000)) {
+            showNotice({ type: 'error', message: 'Sueldo por hora inválido.', autoHide: true });
+            return;
+        }
+        try {
+            await updateDoc(doc(db, 'users', user.uid), { hourlyWage: wage });
+            setHourlyWageState(wage);
+        } catch (error) {
+            if (isOfflineError(error)) {
+                showOfflineNotice(() => setHourlyWage(wage));
+                return;
+            }
+            showNotice({
+                type: 'error',
+                message: 'No se pudo guardar el sueldo por hora. Reintenta.',
+                actionLabel: 'Reintentar',
+                onAction: () => setHourlyWage(wage),
+                autoHide: false,
+            });
+        }
+    };
+
     const addGoal = async (name: string, targetAmount: number, icon: string, color: string) => {
         if (!user) return;
         const cleanName = name.replace(/<[^>]*>/g, '').trim();
@@ -689,6 +718,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             moneySpent,
             user,
             theme,
+            hourlyWage,
             isLoading,
             notice,
             showNotice,
@@ -701,6 +731,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             signUp,
             signOut,
             toggleTheme,
+            setHourlyWage,
             goals,
             userAchievements,
             addGoal,

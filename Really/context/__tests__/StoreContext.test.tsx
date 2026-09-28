@@ -175,4 +175,81 @@ describe('StoreContext', () => {
         expect(transaction.update).not.toHaveBeenCalled();
         expect(transaction.set).not.toHaveBeenCalled();
     });
+
+    it('carga hourlyWage desde el documento de usuario', async () => {
+        const { onSnapshot } = require('firebase/firestore');
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({ exists: () => true, data: () => ({ hourlyWage: 25 }), forEach: () => { } });
+            return jest.fn();
+        });
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        expect(result.current.hourlyWage).toBe(25);
+    });
+
+    it('setHourlyWage guarda el valor y actualiza el estado local', async () => {
+        const { updateDoc } = require('firebase/firestore');
+        updateDoc.mockClear();
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.setHourlyWage(30);
+        });
+
+        expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { hourlyWage: 30 });
+        expect(result.current.hourlyWage).toBe(30);
+    });
+
+    it('setHourlyWage(null) borra el valor guardado', async () => {
+        const { updateDoc } = require('firebase/firestore');
+        updateDoc.mockClear();
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.setHourlyWage(30);
+        });
+        await act(async () => {
+            await result.current.setHourlyWage(null);
+        });
+
+        expect(updateDoc).toHaveBeenLastCalledWith(expect.anything(), { hourlyWage: null });
+        expect(result.current.hourlyWage).toBeNull();
+    });
+
+    it('setHourlyWage rechaza valores fuera de rango', async () => {
+        const { updateDoc } = require('firebase/firestore');
+        updateDoc.mockClear();
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.setHourlyWage(-5);
+        });
+
+        expect(updateDoc).not.toHaveBeenCalled();
+        expect(result.current.notice?.type).toBe('error');
+    });
 });
