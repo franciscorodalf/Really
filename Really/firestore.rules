@@ -17,14 +17,16 @@ service cloud.firestore {
           'theme',
           'supportId',
           'achievements',
-          'savedCount'
+          'savedCount',
+          'hourlyWage'
         ])
         && ( !('moneySaved' in request.resource.data) || inRange(request.resource.data.moneySaved, 0, 1000000) )
         && ( !('moneySpent' in request.resource.data) || inRange(request.resource.data.moneySpent, 0, 1000000) )
         && ( !('savedCount' in request.resource.data) || inRange(request.resource.data.savedCount, 0, 1000000) )
         && ( !('theme' in request.resource.data) || isTheme(request.resource.data.theme) )
         && ( !('supportId' in request.resource.data) || (isString(request.resource.data.supportId) && request.resource.data.supportId.size() <= 32) )
-        && ( !('achievements' in request.resource.data) || request.resource.data.achievements is list );
+        && ( !('achievements' in request.resource.data) || request.resource.data.achievements is list )
+        && ( !('hourlyWage' in request.resource.data) || request.resource.data.hourlyWage == null || (isNumber(request.resource.data.hourlyWage) && request.resource.data.hourlyWage > 0 && request.resource.data.hourlyWage <= 100000) );
       
       match /items/{itemId} {
         allow read: if request.auth != null && request.auth.uid == userId;

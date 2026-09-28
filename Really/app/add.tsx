@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 30,
-        marginTop: Platform.OS === 'android' ? 40 : 0,
+        marginTop: 0,
     },
     closeButton: {
         padding: 4,

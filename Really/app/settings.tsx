@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
@@ -17,16 +17,14 @@ export default function SettingsScreen() {
 
     const isDark = colorScheme === 'dark';
 
-    const [wageInput, setWageInput] = useState(hourlyWage !== null ? String(hourlyWage) : '');
-
-    useEffect(() => {
-        setWageInput(hourlyWage !== null ? String(hourlyWage) : '');
-    }, [hourlyWage]);
+    const [wageDraft, setWageDraft] = useState<string | null>(null);
+    const wageInputValue = wageDraft ?? (hourlyWage !== null ? String(hourlyWage) : '');
 
     const handleSaveWage = async () => {
-        const result = parseWageInput(wageInput);
+        const result = parseWageInput(wageInputValue);
         if (result.kind === 'empty') {
             await setHourlyWage(null);
+            setWageDraft(null);
             return;
         }
         if (result.kind === 'invalid') {
@@ -34,6 +32,7 @@ export default function SettingsScreen() {
             return;
         }
         await setHourlyWage(result.value);
+        setWageDraft(null);
     };
 
     const handleClearData = () => {
@@ -105,8 +104,8 @@ export default function SettingsScreen() {
                                 placeholder="0.00"
                                 placeholderTextColor={AppTheme.subtext}
                                 keyboardType="decimal-pad"
-                                value={wageInput}
-                                onChangeText={setWageInput}
+                                value={wageInputValue}
+                                onChangeText={setWageDraft}
                                 onEndEditing={handleSaveWage}
                             />
                             <ThemedText style={{ fontSize: 13, color: AppTheme.subtext, lineHeight: 16 }}>/ hora</ThemedText>
