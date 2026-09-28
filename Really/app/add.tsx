@@ -5,13 +5,16 @@ import { useStore } from '../context/StoreContext';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { ThemedButton } from '../components/ThemedButton';
+import { formatWorkHours } from '../utils/workHours';
 
 export default function AddScreen() {
     const router = useRouter();
-    const { addItem, theme: colorScheme } = useStore();
+    const insets = useSafeAreaInsets();
+    const { addItem, theme: colorScheme, hourlyWage } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const [name, setName] = useState('');
@@ -21,6 +24,8 @@ export default function AddScreen() {
     const [category, setCategory] = useState('Otros');
     const [categoryIcon, setCategoryIcon] = useState('pricetag-outline');
     const [categoryColor, setCategoryColor] = useState('#9E9E9E');
+
+    const workHoursPreview = formatWorkHours(parseFloat(price) || 0, hourlyWage);
 
     const UNIT_CONFIG = {
         days: { label: 'Días', singular: 'día', plural: 'días', min: 1, max: 60, default: 30 },
@@ -64,7 +69,7 @@ export default function AddScreen() {
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: AppTheme.background }]}>
+        <View style={[styles.container, { backgroundColor: AppTheme.background, paddingTop: insets.top + 12 }]}>
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -105,6 +110,9 @@ export default function AddScreen() {
                                 onChangeText={setPrice}
                                 keyboardType="decimal-pad"
                             />
+                            {workHoursPreview && (
+                                <ThemedText style={{ fontSize: 13, lineHeight: 16, color: AppTheme.subtext }}>{workHoursPreview}</ThemedText>
+                            )}
                         </View>
 
                         <View style={styles.inputGroup}>
@@ -183,14 +191,13 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         paddingHorizontal: 24,
-        paddingTop: 24,
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 30,
-        marginTop: Platform.OS === 'android' ? 40 : 10,
+        marginTop: 0,
     },
     closeButton: {
         padding: 4,

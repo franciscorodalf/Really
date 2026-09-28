@@ -34,7 +34,14 @@ jest.mock('firebase/firestore', () => ({
     runTransaction: jest.fn(),
 }));
 
-export function renderWithStore(ui: React.ReactElement) {
+export function renderWithStore(ui: React.ReactElement, options?: { hourlyWage?: number }) {
+    if (options?.hourlyWage !== undefined) {
+        const { onSnapshot } = require('firebase/firestore');
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({ exists: () => true, data: () => ({ hourlyWage: options.hourlyWage }), forEach: () => { } });
+            return jest.fn();
+        });
+    }
     return render(<StoreProvider>{ui}</StoreProvider>);
 }
 

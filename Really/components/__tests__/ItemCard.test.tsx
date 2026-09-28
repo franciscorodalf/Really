@@ -56,4 +56,21 @@ describe('ItemCard', () => {
         fireEvent.press(getByText('Ahorrar'));
         await waitFor(() => expect(onResolveMock).toHaveBeenCalledWith('1', 'save'));
     });
+
+    it('muestra el equivalente en horas de trabajo cuando hay sueldo configurado', () => {
+        const { getByText } = renderWithStore(
+            <ItemCard item={mockItem} onResolve={() => { }} onDelete={() => { }} />,
+            { hourlyWage: 10 }
+        );
+
+        expect(getByText('≈ 10.0h de trabajo')).toBeTruthy();
+    });
+
+    it('no muestra el equivalente en horas cuando no hay sueldo configurado', () => {
+        const { queryByText } = renderWithStore(
+            <ItemCard item={mockItem} onResolve={() => { }} onDelete={() => { }} />
+        );
+
+        expect(queryByText(/de trabajo/)).toBeNull();
+    });
 });

@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, TouchableOpacity, Alert, ScrollView, Switch, Platform, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '../context/StoreContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,13 +8,32 @@ import { StatusBar } from 'expo-status-bar';
 import * as Clipboard from 'expo-clipboard';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
+import { parseWageInput } from '../utils/workHours';
 
 export default function SettingsScreen() {
     const router = useRouter();
-    const { clearAllData, toggleTheme, signOut, user, theme: colorScheme } = useStore();
+    const { clearAllData, toggleTheme, signOut, user, theme: colorScheme, hourlyWage, setHourlyWage, showNotice } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const isDark = colorScheme === 'dark';
+
+    const [wageDraft, setWageDraft] = useState<string | null>(null);
+    const wageInputValue = wageDraft ?? (hourlyWage !== null ? String(hourlyWage) : '');
+
+    const handleSaveWage = async () => {
+        const result = parseWageInput(wageInputValue);
+        if (result.kind === 'empty') {
+            await setHourlyWage(null);
+            setWageDraft(null);
+            return;
+        }
+        if (result.kind === 'invalid') {
+            showNotice({ type: 'error', message: 'Sueldo por hora inválido.', autoHide: true });
+            return;
+        }
+        await setHourlyWage(result.value);
+        setWageDraft(null);
+    };
 
     const handleClearData = () => {
         Alert.alert(
@@ -70,6 +89,28 @@ export default function SettingsScreen() {
                         <ThemedText style={[styles.supportIdValue, { color: AppTheme.text }]}>#{user?.uid.slice(-6).toUpperCase()}</ThemedText>
                         <Ionicons name="copy-outline" size={14} color={AppTheme.subtext} style={{ marginLeft: 6 }} />
                     </TouchableOpacity>
+                </View>
+
+                <View style={styles.section}>
+                    <ThemedText style={styles.sectionTitle}>Coste en Horas</ThemedText>
+                    <View style={[styles.wageCard, { backgroundColor: AppTheme.surface }]}>
+                        <ThemedText style={{ fontSize: 13, color: AppTheme.subtext, lineHeight: 18 }}>
+                            Indica tu sueldo por hora para ver cuánto tiempo de trabajo representa cada deseo.
+                        </ThemedText>
+                        <View style={styles.wageInputRow}>
+                            <ThemedText style={[styles.wageCurrency, { color: AppTheme.text }]}>$</ThemedText>
+                            <TextInput
+                                style={[styles.wageInput, { color: AppTheme.text, borderBottomColor: AppTheme.border }]}
+                                placeholder="0.00"
+                                placeholderTextColor={AppTheme.subtext}
+                                keyboardType="decimal-pad"
+                                value={wageInputValue}
+                                onChangeText={setWageDraft}
+                                onEndEditing={handleSaveWage}
+                            />
+                            <ThemedText style={{ fontSize: 13, color: AppTheme.subtext, lineHeight: 16 }}>/ hora</ThemedText>
+                        </View>
+                    </View>
                 </View>
 
                 <View style={styles.section}>
@@ -229,5 +270,27 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '700',
         fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    },
+    wageCard: {
+        borderRadius: 16,
+        padding: 16,
+        gap: 12,
+    },
+    wageInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    wageCurrency: {
+        fontSize: 20,
+        lineHeight: 24,
+        fontFamily: 'Poppins_500Medium',
+    },
+    wageInput: {
+        flex: 1,
+        fontSize: 20,
+        fontFamily: 'Poppins_500Medium',
+        borderBottomWidth: 1,
+        paddingVertical: 6,
     },
 });
