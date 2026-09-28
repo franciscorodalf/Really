@@ -78,7 +78,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onResolve, onDelete, t
                     <View style={{ alignItems: 'flex-end' }}>
                         <ThemedText type="defaultSemiBold" style={{ fontSize: 18 }}>${item.price.toFixed(2)}</ThemedText>
                         {workHoursLabel && (
-                            <ThemedText style={{ fontSize: 11, color: AppTheme.subtext, marginTop: 2 }}>{workHoursLabel}</ThemedText>
+                            <ThemedText style={{ fontSize: 11, lineHeight: 14, color: AppTheme.subtext, marginTop: 2 }}>{workHoursLabel}</ThemedText>
                         )}
                     </View>
 
