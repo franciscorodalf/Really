@@ -9,11 +9,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { ThemedButton } from '../components/ThemedButton';
+import { formatWorkHours } from '../utils/workHours';
 
 export default function AddScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { addItem, theme: colorScheme } = useStore();
+    const { addItem, theme: colorScheme, hourlyWage } = useStore();
     const AppTheme = Colors[colorScheme];
 
     const [name, setName] = useState('');
@@ -23,6 +24,8 @@ export default function AddScreen() {
     const [category, setCategory] = useState('Otros');
     const [categoryIcon, setCategoryIcon] = useState('pricetag-outline');
     const [categoryColor, setCategoryColor] = useState('#9E9E9E');
+
+    const workHoursPreview = formatWorkHours(parseFloat(price) || 0, hourlyWage);
 
     const UNIT_CONFIG = {
         days: { label: 'Días', singular: 'día', plural: 'días', min: 1, max: 60, default: 30 },
@@ -107,6 +110,9 @@ export default function AddScreen() {
                                 onChangeText={setPrice}
                                 keyboardType="decimal-pad"
                             />
+                            {workHoursPreview && (
+                                <ThemedText style={{ fontSize: 13, lineHeight: 16, color: AppTheme.subtext }}>{workHoursPreview}</ThemedText>
+                            )}
                         </View>
 
                         <View style={styles.inputGroup}>
