@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,15 +10,43 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
+
+const ACHIEVEMENT_TROPHY_DURATION_MS = 4000;
 
 export default function Index() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { items, moneySaved, moneySpent, resolveItem, deleteItem, user, theme, isLoading } = useStore();
+    const { items, moneySaved, moneySpent, resolveItem, deleteItem, user, theme, isLoading, newAchievementSignal } = useStore();
     const [now, setNow] = useState(() => Date.now());
     const [refreshing, setRefreshing] = useState(false);
     const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
+    const [showAchievementTrophy, setShowAchievementTrophy] = useState(false);
+    const trophyRotation = useSharedValue(0);
+    const isFirstAchievementRender = useRef(true);
+
+    useEffect(() => {
+        if (isFirstAchievementRender.current) {
+            isFirstAchievementRender.current = false;
+            return;
+        }
+        setShowAchievementTrophy(true);
+        trophyRotation.value = withSequence(
+            withTiming(-18, { duration: 70 }),
+            withTiming(18, { duration: 70 }),
+            withTiming(-14, { duration: 70 }),
+            withTiming(14, { duration: 70 }),
+            withTiming(-8, { duration: 70 }),
+            withTiming(8, { duration: 70 }),
+            withTiming(0, { duration: 70 })
+        );
+        const timeout = setTimeout(() => setShowAchievementTrophy(false), ACHIEVEMENT_TROPHY_DURATION_MS);
+        return () => clearTimeout(timeout);
+    }, [newAchievementSignal, trophyRotation]);
+
+    const trophyAnimatedStyle = useAnimatedStyle(() => ({
+        transform: [{ rotate: `${trophyRotation.value}deg` }],
+    }));
 
     useEffect(() => {
         const checkOnboarding = async () => {
@@ -106,7 +134,13 @@ export default function Index() {
                             <Ionicons name="time-outline" size={24} color={AppTheme.text} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => router.push('/settings')} style={styles.iconButton}>
-                            <Ionicons name="settings-outline" size={24} color={AppTheme.text} />
+                            <Animated.View style={trophyAnimatedStyle}>
+                                <Ionicons
+                                    name={showAchievementTrophy ? 'trophy' : 'settings-outline'}
+                                    size={24}
+                                    color={showAchievementTrophy ? '#FFC107' : AppTheme.text}
+                                />
+                            </Animated.View>
                         </TouchableOpacity>
                     </View>
                 </View>
