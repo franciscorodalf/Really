@@ -144,6 +144,55 @@ describe('StoreContext', () => {
             { merge: true }
         );
         expect(cancelScheduledNotificationAsync).toHaveBeenCalledWith('notif-123');
+        expect(result.current.newAchievementSignal).toBe(1);
+        expect(result.current.notice).toBeNull();
+    });
+
+    it('resolveItem shows a success notice (not the achievement signal) when no achievement is earned', async () => {
+        const { runTransaction } = require('firebase/firestore');
+
+        const itemData = {
+            id: 'item-2',
+            name: 'Test',
+            price: 5,
+            createdAt: Date.now(),
+            unlockAt: Date.now(),
+            status: 'waiting',
+        };
+        const userData = {
+            moneySaved: 50,
+            moneySpent: 0,
+            savedCount: 1,
+            achievements: ['first_save'],
+        };
+
+        const transaction = {
+            get: jest.fn()
+                .mockResolvedValueOnce({ exists: () => true, data: () => itemData })
+                .mockResolvedValueOnce({ exists: () => true, data: () => userData }),
+            update: jest.fn(),
+            set: jest.fn(),
+        };
+
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => {
+            return updateFn(transaction);
+        });
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.resolveItem('item-2', 'save');
+        });
+
+        expect(result.current.newAchievementSignal).toBe(0);
+        expect(result.current.notice).toEqual(
+            expect.objectContaining({ type: 'success', message: '¡Ahorro sumado!' })
+        );
     });
 
     it('allocateSavings does nothing when funds are insufficient', async () => {

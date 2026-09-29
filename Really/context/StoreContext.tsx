@@ -118,6 +118,7 @@ interface StoreContextType {
     notice: Notice | null;
     showNotice: (notice: Notice) => void;
     clearNotice: () => void;
+    newAchievementSignal: number;
     addItem: (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
@@ -156,6 +157,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
     const [notice, setNotice] = useState<Notice | null>(null);
     const [hasOfflineNotice, setHasOfflineNotice] = useState(false);
+    const [newAchievementSignal, setNewAchievementSignal] = useState(0);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -174,6 +176,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setMoneySpent(0);
             setSavedCount(null);
             setHasItemsLoaded(false);
+            setNewAchievementSignal(0);
             setHourlyWageState(null);
             return;
         }
@@ -461,11 +464,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
 
             if (result.earned.length > 0) {
-                showNotice({
-                    type: 'info',
-                    message: `¡Logro desbloqueado! ${result.earned.join(', ')}`,
-                    autoHide: true,
-                });
+                setNewAchievementSignal((s) => s + 1);
             } else {
                 showNotice({
                     type: 'success',
@@ -723,6 +722,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             notice,
             showNotice,
             clearNotice,
+            newAchievementSignal,
             addItem,
             resolveItem,
             deleteItem,
