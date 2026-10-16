@@ -14,6 +14,7 @@ if (Platform.OS !== 'android' || !isExpoGo) {
 import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
+import { computeCurrentStreak } from '../utils/gamificationStats';
 import {
     onAuthStateChanged,
     User,
@@ -92,6 +93,9 @@ export const ACHIEVEMENTS: Achievement[] = [
     { id: 'saver_2000', title: 'Experto', description: 'Has ahorrado más de $2000', icon: 'ribbon' },
     { id: 'saver_5000', title: 'Magnate', description: 'Has ahorrado más de $5000', icon: 'diamond' },
     { id: 'saver_10000', title: 'Leyenda', description: 'Has ahorrado más de $10000', icon: 'ribbon' },
+    { id: 'streak_3', title: 'Racha de Defensa', description: 'Resististe 3 compras impulsivas seguidas', icon: 'flame-outline' },
+    { id: 'streak_5', title: 'Disciplina de Hierro', description: 'Resististe 5 compras impulsivas seguidas', icon: 'flame' },
+    { id: 'streak_10', title: 'Inquebrantable', description: 'Resististe 10 compras impulsivas seguidas', icon: 'shield-checkmark' },
 ];
 
 export type Theme = 'light' | 'dark';
@@ -406,6 +410,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const itemRef = doc(db, 'users', user.uid, 'items', id);
         const userRef = doc(db, 'users', user.uid);
         const resolvedAt = Date.now();
+        const streakBeforeResolution = computeCurrentStreak(items);
 
         try {
             const result = await runTransaction(db, async (transaction) => {
@@ -429,6 +434,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if (decision === 'save') {
                     const newSaved = currentSaved + item.price;
                     const newSavedCount = currentSavedCount + 1;
+                    const newStreak = streakBeforeResolution + 1;
 
                     if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); newlyEarned.push('Primer Ahorro'); }
                     if (newSavedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); newlyEarned.push('Coleccionista'); }
@@ -439,6 +445,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); newlyEarned.push('Experto'); }
                     if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); newlyEarned.push('Magnate'); }
                     if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); newlyEarned.push('Leyenda'); }
+
+                    if (newStreak >= 3 && !newAchievements.includes('streak_3')) { newAchievements.push('streak_3'); newlyEarned.push('Racha de Defensa'); }
+                    if (newStreak >= 5 && !newAchievements.includes('streak_5')) { newAchievements.push('streak_5'); newlyEarned.push('Disciplina de Hierro'); }
+                    if (newStreak >= 10 && !newAchievements.includes('streak_10')) { newAchievements.push('streak_10'); newlyEarned.push('Inquebrantable'); }
 
                     transaction.update(itemRef, { status: 'saved', resolvedAt });
                     transaction.set(userRef, {
