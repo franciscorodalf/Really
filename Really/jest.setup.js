@@ -17,6 +17,12 @@ jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+// NetInfo has no native module under Jest. Use the official mock; tests drive
+// it by overriding NetInfo.addEventListener.
+jest.mock('@react-native-community/netinfo', () =>
+    require('@react-native-community/netinfo/jest/netinfo-mock.js')
+);
+
 afterEach(async () => {
     const storage = require('@react-native-async-storage/async-storage');
     const asyncStorage = storage.default ?? storage;
