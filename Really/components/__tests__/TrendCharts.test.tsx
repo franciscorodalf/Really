@@ -4,7 +4,9 @@ import { TrendCharts } from '../TrendCharts';
 import type { TrendItem } from '../../utils/trendStats';
 
 jest.mock('react-native-gifted-charts', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const React = require('react');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { View } = require('react-native');
     return {
         BarChart: () => React.createElement(View, { testID: 'bar-chart' }),
@@ -97,6 +99,15 @@ describe('TrendCharts', () => {
         expect(getAllByTestId('pie-chart')).toHaveLength(1);
         expect(getByText('Por día de la semana')).toBeTruthy();
         expect(getByText('Por categoría')).toBeTruthy();
+    });
+
+    it('un ítem con precio 0 dentro de la ventana sigue mostrando la gráfica mensual', () => {
+        const { queryByText, getAllByTestId } = renderWithStore(
+            <TrendCharts items={[makeItem({ price: 0 })]} type="saved" accentColor="#00B894" now={NOW} />
+        );
+
+        expect(queryByText('Sin actividad en los últimos 6 meses.')).toBeNull();
+        expect(getAllByTestId('bar-chart')).toHaveLength(2);
     });
 
     it('muestra el equivalente en horas de trabajo cuando hay sueldo configurado', () => {

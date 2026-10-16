@@ -30,6 +30,8 @@ const FALLBACK_PALETTE = ['#6C5CE7', '#00B894', '#FDCB6E', '#FF7675', '#0984E3',
 const HORIZONTAL_CHROME = 72;
 const CHART_EDGE_SPACING = 8;
 const CHART_HEIGHT = 140;
+// Margen sobre la barra más alta para que su etiqueta superior no se recorte.
+const BAR_HEADROOM = 1.15;
 
 function formatAmount(value: number): string {
     return `$${Math.round(value)}`;
@@ -74,9 +76,9 @@ export function TrendCharts({ items, type, accentColor, now }: TrendChartsProps)
     const renderBars = (data: PeriodTotal[]) => {
         const count = data.length;
         const slot = (chartWidth - CHART_EDGE_SPACING * 2) / count;
-        const barWidth = Math.max(Math.floor(slot * 0.6), 4);
+        const barWidth = Math.min(Math.max(Math.floor(slot * 0.6), 4), 36);
         const spacing = Math.max(Math.floor(slot - barWidth), 0);
-        const maxValue = Math.max(...data.map((entry) => entry.total), 1);
+        const maxValue = Math.max(...data.map((entry) => entry.total), 1) * BAR_HEADROOM;
 
         return (
             <BarChart
@@ -123,7 +125,7 @@ export function TrendCharts({ items, type, accentColor, now }: TrendChartsProps)
         <View style={styles.container}>
             <View style={[styles.card, { backgroundColor: AppTheme.surface }]}>
                 <ThemedText type="defaultSemiBold">Evolución mensual</ThemedText>
-                {monthlyTotal > 0 ? (
+                {monthly.some((month) => month.count > 0) ? (
                     <>
                         <View style={styles.chartBox}>{renderBars(monthly)}</View>
                         <ThemedText style={{ fontSize: 13, lineHeight: 18, color: AppTheme.subtext }}>
@@ -192,6 +194,7 @@ export function TrendCharts({ items, type, accentColor, now }: TrendChartsProps)
 const styles = StyleSheet.create({
     container: {
         gap: 16,
+        marginBottom: 14,
     },
     card: {
         borderRadius: 20,
