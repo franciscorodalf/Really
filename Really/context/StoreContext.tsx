@@ -15,6 +15,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
 import { computeCurrentStreak } from '../utils/gamificationStats';
+import { awardSaveAchievements } from '../utils/achievementRules';
+import type { Item, Goal, Theme } from './types';
 import {
     onAuthStateChanged,
     User,
@@ -52,53 +54,8 @@ if (Platform.OS !== 'web' && Notifications) {
     }
 }
 
-export interface Item {
-    id: string;
-    name: string;
-    price: number;
-    createdAt: number;
-    unlockAt: number;
-    status: 'waiting' | 'bought' | 'saved';
-    image?: string;
-    resolvedAt?: number;
-    category?: string;
-    categoryIcon?: string;
-    categoryColor?: string;
-    notificationId?: string;
-}
-
-export interface Goal {
-    id: string;
-    name: string;
-    targetAmount: number;
-    currentAmount: number;
-    icon: string;
-    color: string;
-    createdAt: number;
-}
-
-export interface Achievement {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-}
-
-export const ACHIEVEMENTS: Achievement[] = [
-    { id: 'first_save', title: 'Primer Ahorro', description: 'Has ahorrado tu primer deseo', icon: 'star' },
-    { id: 'saver_10', title: 'Coleccionista', description: 'Has ahorrado 10 deseos', icon: 'library' },
-    { id: 'saver_100', title: 'Ahorrador Novato', description: 'Has ahorrado más de $100', icon: 'wallet' },
-    { id: 'saver_200', title: 'Buen Comienzo', description: 'Has ahorrado más de $200', icon: 'trending-up' },
-    { id: 'saver_1000', title: 'Gran Ahorrador', description: 'Has ahorrado más de $1000', icon: 'trophy' },
-    { id: 'saver_2000', title: 'Experto', description: 'Has ahorrado más de $2000', icon: 'ribbon' },
-    { id: 'saver_5000', title: 'Magnate', description: 'Has ahorrado más de $5000', icon: 'diamond' },
-    { id: 'saver_10000', title: 'Leyenda', description: 'Has ahorrado más de $10000', icon: 'ribbon' },
-    { id: 'streak_3', title: 'Racha de Defensa', description: 'Resististe 3 compras impulsivas seguidas', icon: 'flame-outline' },
-    { id: 'streak_5', title: 'Disciplina de Hierro', description: 'Resististe 5 compras impulsivas seguidas', icon: 'flame' },
-    { id: 'streak_10', title: 'Inquebrantable', description: 'Resististe 10 compras impulsivas seguidas', icon: 'shield-checkmark' },
-];
-
-export type Theme = 'light' | 'dark';
+export { ACHIEVEMENTS } from './types';
+export type { Item, Goal, Achievement, Theme } from './types';
 export type NoticeType = 'success' | 'error' | 'info';
 
 export interface Notice {
@@ -458,27 +415,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const currentSavedCount = Number(userData.savedCount || 0);
                 const currentAchievements: string[] = Array.isArray(userData.achievements) ? userData.achievements : [];
 
-                const newAchievements = [...currentAchievements];
-                const newlyEarned: string[] = [];
+                let newAchievements = [...currentAchievements];
+                let newlyEarned: string[] = [];
 
                 if (decision === 'save') {
                     const newSaved = currentSaved + item.price;
                     const newSavedCount = currentSavedCount + 1;
                     const newStreak = streakBeforeResolution + 1;
 
-                    if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); newlyEarned.push('Primer Ahorro'); }
-                    if (newSavedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); newlyEarned.push('Coleccionista'); }
-
-                    if (newSaved >= 100 && !newAchievements.includes('saver_100')) { newAchievements.push('saver_100'); newlyEarned.push('Ahorrador Novato'); }
-                    if (newSaved >= 200 && !newAchievements.includes('saver_200')) { newAchievements.push('saver_200'); newlyEarned.push('Buen Comienzo'); }
-                    if (newSaved >= 1000 && !newAchievements.includes('saver_1000')) { newAchievements.push('saver_1000'); newlyEarned.push('Gran Ahorrador'); }
-                    if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); newlyEarned.push('Experto'); }
-                    if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); newlyEarned.push('Magnate'); }
-                    if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); newlyEarned.push('Leyenda'); }
-
-                    if (newStreak >= 3 && !newAchievements.includes('streak_3')) { newAchievements.push('streak_3'); newlyEarned.push('Racha de Defensa'); }
-                    if (newStreak >= 5 && !newAchievements.includes('streak_5')) { newAchievements.push('streak_5'); newlyEarned.push('Disciplina de Hierro'); }
-                    if (newStreak >= 10 && !newAchievements.includes('streak_10')) { newAchievements.push('streak_10'); newlyEarned.push('Inquebrantable'); }
+                    const awarded = awardSaveAchievements({
+                        current: currentAchievements,
+                        newSaved,
+                        newSavedCount,
+                        newStreak,
+                    });
+                    newAchievements = awarded.achievements;
+                    newlyEarned = awarded.earned;
 
                     transaction.update(itemRef, { status: 'saved', resolvedAt });
                     transaction.set(userRef, {
