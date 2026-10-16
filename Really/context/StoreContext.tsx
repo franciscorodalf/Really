@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 let Notifications: any;
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -162,6 +162,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [notice, setNotice] = useState<Notice | null>(null);
     const [hasOfflineNotice, setHasOfflineNotice] = useState(false);
     const [newAchievementSignal, setNewAchievementSignal] = useState(0);
+
+    // Refs para calcular la racha con datos frescos: el estado `items` capturado en el
+    // closure puede estar desfasado si hay resoluciones en vuelo (la transacción no
+    // actualiza el estado local hasta que el servidor confirma) o si se reintenta una
+    // resolución antigua.
+    const itemsRef = useRef<Item[]>([]);
+    const pendingResolutionsRef = useRef<Map<string, { status: 'saved' | 'bought'; resolvedAt: number }>>(new Map());
+
+    useEffect(() => {
+        itemsRef.current = items;
+    }, [items]);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -410,7 +421,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const itemRef = doc(db, 'users', user.uid, 'items', id);
         const userRef = doc(db, 'users', user.uid);
         const resolvedAt = Date.now();
-        const streakBeforeResolution = computeCurrentStreak(items);
+
+        // Racha previa: items actuales + resoluciones aún en vuelo (se calcula ANTES de
+        // registrar la entrada de esta llamada, que solo sirve a llamadas concurrentes posteriores).
+        const pendingResolutions = pendingResolutionsRef.current;
+        const itemsForStreak = itemsRef.current.map((item) => {
+            const pending = pendingResolutions.get(item.id);
+            return pending ? { ...item, status: pending.status, resolvedAt: pending.resolvedAt } : item;
+        });
+        const streakBeforeResolution = computeCurrentStreak(itemsForStreak);
+        const ownPending = { status: decision === 'save' ? ('saved' as const) : ('bought' as const), resolvedAt };
+        pendingResolutions.set(id, ownPending);
 
         try {
             const result = await runTransaction(db, async (transaction) => {
@@ -494,6 +515,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 onAction: () => resolveItem(id, decision),
                 autoHide: false,
             });
+        } finally {
+            if (pendingResolutions.get(id) === ownPending) {
+                pendingResolutions.delete(id);
+            }
         }
     };
 

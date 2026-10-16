@@ -120,6 +120,7 @@ export default function Index() {
     if (!user) return null;
 
     const AppTheme = Colors[isDark ? 'dark' : 'light'];
+    const streakColor = isDark ? '#FF7675' : '#C0392B';
 
     return (
         <View style={[styles.container, { paddingTop: insets.top, backgroundColor: AppTheme.background }]}>
@@ -204,16 +205,16 @@ export default function Index() {
                             </View>
                             {currentStreak > 0 && (
                                 <View style={styles.streakBadge}>
-                                    <Ionicons name="flame" size={14} color="#FF7675" />
-                                    <ThemedText style={styles.streakText}>{currentStreak}</ThemedText>
+                                    <Ionicons name="flame" size={14} color={streakColor} />
+                                    <ThemedText style={[styles.streakText, { color: streakColor }]}>{currentStreak}</ThemedText>
                                 </View>
                             )}
                         </View>
-                        <View style={[styles.defenseBarBg, { backgroundColor: AppTheme.background }]}>
+                        <View style={[styles.defenseBarBg, { backgroundColor: AppTheme.border }]}>
                             <View style={[styles.defenseBarFill, { width: `${defenseRate}%`, backgroundColor: AppTheme.secondary }]} />
                         </View>
                         <ThemedText style={[styles.defenseSubtext, { color: AppTheme.subtext }]}>
-                            {Math.round(defenseRate ?? 0)}% de tus deseos resistidos
+                            {Math.floor(defenseRate ?? 0)}% de tus deseos resistidos
                         </ThemedText>
                     </View>
                 )}
@@ -321,7 +322,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 16,
         fontWeight: '700',
-        color: '#FF7675',
     },
     defenseBarBg: {
         height: 10,
