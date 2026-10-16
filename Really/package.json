@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint",
+    "lint": "expo lint app components context utils hooks test-utils",
     "test": "jest"
   },
   "jest": {
