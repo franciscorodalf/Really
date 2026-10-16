@@ -18,17 +18,20 @@ jest.mock('firebase/auth', () => ({
     signOut: jest.fn(),
 }));
 
+// onSnapshot se llama como (ref, { includeMetadataChanges: true }, callback).
+// Las escrituras devuelven una promesa como el SDK real: el motor de sincronización
+// (services/syncEngine.ts) las envuelve en un plazo máximo y necesita poder esperarlas.
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
-    setDoc: jest.fn(),
-    onSnapshot: jest.fn((ref, callback) => {
+    setDoc: jest.fn(() => Promise.resolve()),
+    onSnapshot: jest.fn((ref, _options, callback) => {
         // Simulate empty data initially
         callback({ exists: () => false, data: () => ({}), forEach: () => { } });
         return jest.fn();
     }),
-    updateDoc: jest.fn(),
-    deleteDoc: jest.fn(),
+    updateDoc: jest.fn(() => Promise.resolve()),
+    deleteDoc: jest.fn(() => Promise.resolve()),
     query: jest.fn(),
     orderBy: jest.fn(),
     getDoc: jest.fn(),
@@ -51,6 +54,12 @@ jest.mock('expo-constants', () => ({
     executionEnvironment: 'standalone',
     ExecutionEnvironment: { StoreClient: 'storeClient' },
 }));
+
+// Los handlers solo encolan la operación y lanzan la sincronización en segundo plano: antes de
+// comprobar lo que se escribió en Firestore hay que dejar que termine el flush.
+const waitForSync = () => act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 describe('StoreContext', () => {
     it('provides initial state correctly', async () => {
@@ -80,6 +89,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.addItem('Test Item', 100, 1, 'minutes', 'Test');
         });
+        await waitForSync();
 
         // Since we mocked Firestore and onSnapshot doesn't update automatically in this mock,
         // we can't verify items array update without more complex mocking.
@@ -129,6 +139,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-1', 'save');
         });
+        await waitForSync();
 
         expect(transaction.update).toHaveBeenCalledWith(
             expect.anything(),
@@ -188,6 +199,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-2', 'save');
         });
+        await waitForSync();
 
         expect(result.current.newAchievementSignal).toBe(0);
         expect(result.current.notice).toEqual(
@@ -220,6 +232,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.allocateSavings('goal-1', 20);
         });
+        await waitForSync();
 
         expect(transaction.update).not.toHaveBeenCalled();
         expect(transaction.set).not.toHaveBeenCalled();
@@ -227,7 +240,7 @@ describe('StoreContext', () => {
 
     it('carga hourlyWage desde el documento de usuario', async () => {
         const { onSnapshot } = require('firebase/firestore');
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => true, data: () => ({ hourlyWage: 25 }), forEach: () => { } });
             return jest.fn();
         });
@@ -256,6 +269,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.setHourlyWage(30);
         });
+        await waitForSync();
 
         expect(updateDoc).toHaveBeenCalledWith(expect.anything(), { hourlyWage: 30 });
         expect(result.current.hourlyWage).toBe(30);
@@ -275,9 +289,11 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.setHourlyWage(30);
         });
+        await waitForSync();
         await act(async () => {
             await result.current.setHourlyWage(null);
         });
+        await waitForSync();
 
         expect(updateDoc).toHaveBeenLastCalledWith(expect.anything(), { hourlyWage: null });
         expect(result.current.hourlyWage).toBeNull();
@@ -297,6 +313,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.setHourlyWage(-5);
         });
+        await waitForSync();
 
         expect(updateDoc).not.toHaveBeenCalled();
         expect(result.current.notice?.type).toBe('error');
@@ -320,12 +337,12 @@ describe('StoreContext', () => {
         const { onSnapshot, runTransaction } = require('firebase/firestore');
 
         // 1ª llamada a onSnapshot = documento de usuario (valores por defecto)
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
         // 2ª llamada a onSnapshot = colección de items: 2 ahorros ya existentes
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             const mockItems = [
                 { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
                 { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
@@ -370,6 +387,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-3', 'save');
         });
+        await waitForSync();
 
         expect(transaction.set).toHaveBeenCalledWith(
             expect.anything(),
@@ -383,11 +401,11 @@ describe('StoreContext', () => {
     it('resolveItem con decisión "buy" nunca desbloquea logros de racha', async () => {
         const { onSnapshot, runTransaction } = require('firebase/firestore');
 
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             const mockItems = [
                 { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
                 { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
@@ -430,6 +448,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-4', 'buy');
         });
+        await waitForSync();
 
         expect(transaction.set).toHaveBeenCalledWith(
             expect.anything(),
@@ -444,11 +463,11 @@ describe('StoreContext', () => {
     // Siembra el estado: 1ª llamada a onSnapshot = documento de usuario, 2ª = colección de items.
     const seedItems = (mockItems: any[]) => {
         const { onSnapshot } = require('firebase/firestore');
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({
                 exists: () => true,
                 data: () => ({}),
@@ -494,6 +513,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-5', 'save');
         });
+        await waitForSync();
 
         expect(transaction.set).toHaveBeenCalledTimes(1);
         const setCallArgs = transaction.set.mock.calls[0][1];
@@ -519,6 +539,7 @@ describe('StoreContext', () => {
         await act(async () => {
             await result.current.resolveItem('item-10', 'save');
         });
+        await waitForSync();
 
         expect(transaction.set).toHaveBeenCalledTimes(1);
         const achievements: string[] = transaction.set.mock.calls[0][1].achievements;
@@ -562,6 +583,7 @@ describe('StoreContext', () => {
             releaseX();
             await both;
         });
+        await waitForSync();
 
         expect(call).toBe(2);
         expect(txX.set).toHaveBeenCalledWith(expect.anything(), { moneySpent: 10 }, { merge: true });

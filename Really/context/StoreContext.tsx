@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef, useMemo, useCallback } from 'react';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 let Notifications: any;
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -15,6 +15,11 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
 import { computeCurrentStreak } from '../utils/gamificationStats';
+import { applyOps, createOpId, EMPTY_VIEW, type Op, type QueuedOp, type SyncView } from '../utils/offlineOps';
+import { loadCache, loadQueue, saveCache, saveQueue } from '../utils/offlineStorage';
+import { executeOp, flushQueue, type SettleOutcome } from '../services/syncEngine';
+import { useNetworkStatus } from '../hooks/use-network-status';
+import type { Item, Goal, Theme } from './types';
 import {
     onAuthStateChanged,
     User,
@@ -28,11 +33,9 @@ import {
     setDoc,
     onSnapshot,
     updateDoc,
-    deleteDoc,
     query,
     orderBy,
-    getDoc,
-    runTransaction
+    type SnapshotListenOptions,
 } from 'firebase/firestore';
 
 // Configure notifications only on native platforms
@@ -52,53 +55,8 @@ if (Platform.OS !== 'web' && Notifications) {
     }
 }
 
-export interface Item {
-    id: string;
-    name: string;
-    price: number;
-    createdAt: number;
-    unlockAt: number;
-    status: 'waiting' | 'bought' | 'saved';
-    image?: string;
-    resolvedAt?: number;
-    category?: string;
-    categoryIcon?: string;
-    categoryColor?: string;
-    notificationId?: string;
-}
-
-export interface Goal {
-    id: string;
-    name: string;
-    targetAmount: number;
-    currentAmount: number;
-    icon: string;
-    color: string;
-    createdAt: number;
-}
-
-export interface Achievement {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-}
-
-export const ACHIEVEMENTS: Achievement[] = [
-    { id: 'first_save', title: 'Primer Ahorro', description: 'Has ahorrado tu primer deseo', icon: 'star' },
-    { id: 'saver_10', title: 'Coleccionista', description: 'Has ahorrado 10 deseos', icon: 'library' },
-    { id: 'saver_100', title: 'Ahorrador Novato', description: 'Has ahorrado más de $100', icon: 'wallet' },
-    { id: 'saver_200', title: 'Buen Comienzo', description: 'Has ahorrado más de $200', icon: 'trending-up' },
-    { id: 'saver_1000', title: 'Gran Ahorrador', description: 'Has ahorrado más de $1000', icon: 'trophy' },
-    { id: 'saver_2000', title: 'Experto', description: 'Has ahorrado más de $2000', icon: 'ribbon' },
-    { id: 'saver_5000', title: 'Magnate', description: 'Has ahorrado más de $5000', icon: 'diamond' },
-    { id: 'saver_10000', title: 'Leyenda', description: 'Has ahorrado más de $10000', icon: 'ribbon' },
-    { id: 'streak_3', title: 'Racha de Defensa', description: 'Resististe 3 compras impulsivas seguidas', icon: 'flame-outline' },
-    { id: 'streak_5', title: 'Disciplina de Hierro', description: 'Resististe 5 compras impulsivas seguidas', icon: 'flame' },
-    { id: 'streak_10', title: 'Inquebrantable', description: 'Resististe 10 compras impulsivas seguidas', icon: 'shield-checkmark' },
-];
-
-export type Theme = 'light' | 'dark';
+export { ACHIEVEMENTS } from './types';
+export type { Item, Goal, Achievement, Theme } from './types';
 export type NoticeType = 'success' | 'error' | 'info';
 
 export interface Notice {
@@ -107,6 +65,12 @@ export interface Notice {
     actionLabel?: string;
     onAction?: () => void;
     autoHide?: boolean;
+}
+
+export interface SyncStatusState {
+    isOnline: boolean;
+    pendingCount: number;
+    isSyncing: boolean;
 }
 
 interface StoreContextType {
@@ -123,6 +87,7 @@ interface StoreContextType {
     showNotice: (notice: Notice) => void;
     clearNotice: () => void;
     newAchievementSignal: number;
+    syncStatus: SyncStatusState;
     addItem: (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category?: string, categoryIcon?: string, categoryColor?: string) => Promise<void>;
     resolveItem: (id: string, decision: 'buy' | 'save') => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
@@ -144,6 +109,108 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 const currentTimeMs = () => Date.now();
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// Reintento automático de la cola mientras queden operaciones y la red no esté marcada como caída.
+const RETRY_DELAY_MS = 15_000;
+
+// Aviso al descartar una operación por un fallo permanente (sin «Reintentar»: ya no está en la cola).
+const DROP_MESSAGES: Record<Op['type'], string> = {
+    addItem: 'No se pudo guardar el deseo.',
+    resolveItem: 'No se pudo actualizar el deseo.',
+    deleteItem: 'No se pudo eliminar el deseo.',
+    clearAll: 'No se pudo borrar todo.',
+    addGoal: 'No se pudo crear la meta.',
+    deleteGoal: 'No se pudo eliminar la meta.',
+    allocateSavings: 'No se pudo asignar el ahorro.',
+    setHourlyWage: 'No se pudo guardar el sueldo por hora.',
+    setTheme: 'No se pudo cambiar el tema.',
+};
+
+// --- Operaciones confirmadas a la espera del eco del servidor -------------------------------
+// Cuando una operación termina bien sale de la cola, pero el listener correspondiente puede
+// tardar en traer el cambio (las transacciones no tienen compensación de latencia). Para que la
+// vista no «parpadee» al estado anterior, la operación se sigue superponiendo hasta que llegue
+// el eco del servidor.
+//
+// OJO: `applyOps` NO es idempotente frente a un eco parcial. Si `resolveItem` ya se ve en el
+// documento de usuario (moneySaved sumado) pero el deseo sigue `waiting` en la vista de deseos,
+// volver a superponerla suma el precio dos veces; `allocateSavings` resta/suma de nuevo siempre.
+// Como el SDK entrega cada listener por separado (y React puede renderizar entre ambos), la
+// operación deja de superponerse en cuanto CUALQUIERA de sus listeners entrega un snapshot real
+// posterior a su ejecución: se prefiere un parpadeo breve de estado a un total erróneo. La misma
+// regla se aplica a la operación que se está ejecutando (máscara `echoedInFlight`).
+type Listener = 'user' | 'items' | 'goals';
+type SnapshotGen = Record<Listener, number>;
+interface SettledOp {
+    op: QueuedOp;
+    gen: SnapshotGen;
+}
+
+const INITIAL_GEN: SnapshotGen = { user: 0, items: 0, goals: 0 };
+
+const echoListeners = (op: Op): Listener[] => {
+    switch (op.type) {
+        case 'addItem':
+        case 'deleteItem':
+            return ['items'];
+        case 'addGoal':
+        case 'deleteGoal':
+            return ['goals'];
+        case 'resolveItem':
+            return ['user', 'items'];
+        case 'allocateSavings':
+            return ['user', 'goals'];
+        case 'clearAll':
+            return op.itemIds.length > 0 ? ['user', 'items'] : ['user'];
+        case 'setHourlyWage':
+        case 'setTheme':
+            return ['user'];
+    }
+};
+
+const isEchoed = (entry: SettledOp, gen: SnapshotGen) =>
+    echoListeners(entry.op).some((listener) => gen[listener] > entry.gen[listener]);
+
+// Operaciones que se superponen a la vista del servidor: las confirmadas sin eco y la cola,
+// salvo la que se está ejecutando si ya ha llegado su eco (`echoedOpId`).
+const overlayOps = (settled: SettledOp[], queue: QueuedOp[], echoedOpId: string | null): QueuedOp[] => [
+    ...settled.map((entry) => entry.op),
+    ...(echoedOpId === null ? queue : queue.filter((op) => op.opId !== echoedOpId)),
+];
+
+// --- Cola persistida -------------------------------------------------------------------------
+// Las operaciones persistidas van antes que las creadas en memoria durante la hidratación, y
+// se quitan duplicados por `opId`. No se reordena por `createdAt`: es el reloj del dispositivo y
+// un cambio de hora entre sesiones alteraría el orden real en que se encolaron.
+const mergeQueues = (persisted: QueuedOp[], inMemory: QueuedOp[]): QueuedOp[] => {
+    const seen = new Set<string>();
+    const merged: QueuedOp[] = [];
+    for (const op of [...persisted, ...inMemory]) {
+        if (seen.has(op.opId)) continue;
+        seen.add(op.opId);
+        merged.push(op);
+    }
+    return merged;
+};
+
+// Nunca lanza: se usa también desde `onSettled`, que no debe fallar.
+const cancelNotification = async (notificationId: string) => {
+    if (!Notifications) return;
+    try {
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+    } catch (error) {
+        console.warn('Error canceling notification:', error);
+    }
+};
+
+// Clave de contenido independiente del orden de los campos: el SDK puede devolver un documento
+// confirmado con los campos en otro orden que el escrito en local, y eso no es un cambio real.
+const stableKey = (value: unknown): string =>
+    JSON.stringify(value, (_key, val) =>
+        val && typeof val === 'object' && !Array.isArray(val)
+            ? Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+            : val
+    );
+
 export const useStore = () => {
     const context = useContext(StoreContext);
     if (!context) {
@@ -153,101 +220,431 @@ export const useStore = () => {
 };
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [items, setItems] = useState<Item[]>([]);
-    const [goals, setGoals] = useState<Goal[]>([]);
-    const [userAchievements, setUserAchievements] = useState<string[]>([]);
-    const [moneySaved, setMoneySaved] = useState(0);
-    const [moneySpent, setMoneySpent] = useState(0);
-    const [savedCount, setSavedCount] = useState<number | null>(null);
     const [user, setUser] = useState<User | null>(null);
-    const [theme, setTheme] = useState<Theme>('light');
-    const [hourlyWage, setHourlyWageState] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
     const [notice, setNotice] = useState<Notice | null>(null);
-    const [hasOfflineNotice, setHasOfflineNotice] = useState(false);
     const [newAchievementSignal, setNewAchievementSignal] = useState(0);
 
-    // Refs para calcular la racha con datos frescos: el estado `items` capturado en el
-    // closure puede estar desfasado si hay resoluciones en vuelo (la transacción no
-    // actualiza el estado local hasta que el servidor confirma) o si se reintenta una
-    // resolución antigua.
-    const itemsRef = useRef<Item[]>([]);
-    const pendingResolutionsRef = useRef<Map<string, { status: 'saved' | 'bought'; resolvedAt: number }>>(new Map());
+    // Última vista recibida del servidor (o de la caché local hasta que llegue la primera),
+    // cola de operaciones pendientes y operaciones confirmadas a la espera de su eco.
+    const [serverView, setServerView] = useState<SyncView>(EMPTY_VIEW);
+    const [queue, setQueue] = useState<QueuedOp[]>([]);
+    const [settled, setSettled] = useState<SettledOp[]>([]);
+    const [echoedInFlight, setEchoedInFlight] = useState<string | null>(null);
+    const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
+    const [hasUserDocLoaded, setHasUserDocLoaded] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const isOnline = useNetworkStatus() !== false;
 
-    useEffect(() => {
-        itemsRef.current = items;
-    }, [items]);
+    // Espejos síncronos del estado: los handlers y el motor de sincronización leen siempre de
+    // aquí, así dos llamadas seguidas en el mismo tick se ven entre sí.
+    const userRef = useRef<User | null>(null);
+    const serverViewRef = useRef<SyncView>(EMPTY_VIEW);
+    const queueRef = useRef<QueuedOp[]>([]);
+    const settledRef = useRef<SettledOp[]>([]);
+    // Operación en ejecución y, si ya llegó el eco de alguno de sus listeners, su opId.
+    const inFlightRef = useRef<QueuedOp | null>(null);
+    const echoedInFlightRef = useRef<string | null>(null);
+    const mountedRef = useRef(false);
+    const snapshotGenRef = useRef<SnapshotGen>(INITIAL_GEN);
+    const isOnlineRef = useRef(isOnline);
+    // Cada cambio de usuario abre una «sesión» nueva; los resultados asíncronos de otra sesión se ignoran.
+    const sessionRef = useRef(0);
+    const hydratedRef = useRef(false);
+    // true cuando la vista del servidor ya parte de la caché local (o no había caché que conservar):
+    // a partir de ahí se puede guardar la caché aunque algún listener todavía no haya respondido.
+    const cacheBaselineRef = useRef(false);
+    const hydrationRef = useRef<Promise<void>>(Promise.resolve());
+    const flushPromiseRef = useRef<Promise<void> | null>(null);
+    const flushAgainRef = useRef(false);
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Las escrituras en AsyncStorage se encadenan para que lleguen en orden.
+    const persistChainRef = useRef<Promise<void>>(Promise.resolve());
+
+    const view = useMemo(
+        () => applyOps(serverView, overlayOps(settled, queue, echoedInFlight)),
+        [serverView, settled, queue, echoedInFlight],
+    );
+
+    const showNotice = useCallback((nextNotice: Notice) => {
+        setNotice(nextNotice);
+    }, []);
+
+    const clearNotice = useCallback(() => {
+        setNotice(null);
+    }, []);
+
+    const persist = useCallback((task: () => Promise<void>) => {
+        persistChainRef.current = persistChainRef.current
+            .then(task)
+            .catch((error) => console.warn('[StoreContext] error al persistir', error));
+    }, []);
+
+    const commitServerView = useCallback((next: SyncView) => {
+        serverViewRef.current = next;
+        setServerView(next);
+    }, []);
+
+    const commitSettled = useCallback((next: SettledOp[]) => {
+        settledRef.current = next;
+        setSettled(next);
+    }, []);
+
+    const commitEchoedInFlight = useCallback((opId: string | null) => {
+        if (echoedInFlightRef.current === opId) return;
+        echoedInFlightRef.current = opId;
+        setEchoedInFlight(opId);
+    }, []);
+
+    // Actualiza la cola en memoria y, una vez hidratada, la persiste para el usuario actual.
+    const commitQueue = useCallback((next: QueuedOp[]) => {
+        queueRef.current = next;
+        setQueue(next);
+        const uid = userRef.current?.uid;
+        if (uid && hydratedRef.current) persist(() => saveQueue(uid, next));
+    }, [persist]);
+
+    const currentView = useCallback(
+        () => applyOps(serverViewRef.current, overlayOps(settledRef.current, queueRef.current, echoedInFlightRef.current)),
+        [],
+    );
+
+    const clearRetry = useCallback(() => {
+        if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+        }
+    }, []);
+
+    // Reproduce la cola contra Firestore. Single-flight: si ya hay un flush en curso, se marca
+    // para repetir la pasada al terminar (recoge operaciones encoladas tras el último `peek`) y se
+    // devuelve la misma promesa. Si la pasada acaba sin red no se repite: ya actuarán el reintento
+    // de 15 s o la reconexión.
+    const flush = useCallback(function flushImpl(): Promise<void> {
+        if (flushPromiseRef.current) {
+            flushAgainRef.current = true;
+            return flushPromiseRef.current;
+        }
+
+        const handleSettled = (op: QueuedOp, outcome: SettleOutcome, gen: SnapshotGen) => {
+            if (outcome.status === 'dropped') {
+                console.warn('[StoreContext] operación descartada', op.type, outcome.error);
+                showNotice({ type: 'error', message: DROP_MESSAGES[op.type], autoHide: false });
+                if (op.type === 'addItem' && op.item.notificationId) {
+                    void cancelNotification(op.item.notificationId);
+                }
+                return;
+            }
+
+            const result = outcome.result;
+            let keepOverlay = true;
+            if (op.type === 'resolveItem' && result?.type === 'resolveItem') {
+                if (result.notificationId) void cancelNotification(result.notificationId);
+                keepOverlay = result.applied;
+                if (result.applied) {
+                    if (result.earned.length > 0) {
+                        setNewAchievementSignal((s) => s + 1);
+                    } else {
+                        showNotice({
+                            type: 'success',
+                            message: op.decision === 'save' ? '¡Ahorro sumado!' : 'Compra registrada.',
+                            autoHide: true,
+                        });
+                    }
+                }
+            } else if (op.type === 'allocateSavings' && result?.type === 'allocateSavings' && result.insufficient) {
+                keepOverlay = false;
+                showNotice({ type: 'error', message: 'Fondos insuficientes.', autoHide: true });
+            }
+
+            const entry: SettledOp = { op, gen };
+            if (keepOverlay && !isEchoed(entry, snapshotGenRef.current)) {
+                commitSettled([...settledRef.current, entry]);
+            }
+        };
+
+        type PassResult = 'skipped' | 'drained' | 'offline' | 'error';
+
+        const runPass = async (): Promise<PassResult> => {
+            const currentUser = userRef.current;
+            const session = sessionRef.current;
+            if (!currentUser || !hydratedRef.current || !isOnlineRef.current) return 'skipped';
+            clearRetry();
+            if (queueRef.current.length === 0) return 'drained';
+
+            const uid = currentUser.uid;
+            const isCurrent = () => sessionRef.current === session;
+            // No se arma un reintento si el provider ya se desmontó o cambió la sesión mientras
+            // el pase estaba en vuelo (el temporizador quedaría huérfano).
+            const scheduleRetry = () => {
+                if (!mountedRef.current || !isCurrent()) return;
+                clearRetry();
+                retryTimerRef.current = setTimeout(() => {
+                    retryTimerRef.current = null;
+                    void flushImpl();
+                }, RETRY_DELAY_MS);
+            };
+            let execGen: SnapshotGen = snapshotGenRef.current;
+            setIsSyncing(true);
+            try {
+                const outcome = await flushQueue({
+                    peek: () => (isCurrent() ? queueRef.current[0] : undefined),
+                    remove: (opId) => {
+                        if (isCurrent()) {
+                            commitQueue(queueRef.current.filter((op) => op.opId !== opId));
+                        } else {
+                            // La sesión cambió mientras se ejecutaba: se quita igualmente de la cola
+                            // persistida de su usuario para no reproducirla dos veces.
+                            persist(async () => {
+                                const stored = await loadQueue(uid);
+                                await saveQueue(uid, stored.filter((op) => op.opId !== opId));
+                            });
+                        }
+                    },
+                    execute: (op) => {
+                        execGen = { ...snapshotGenRef.current };
+                        inFlightRef.current = op;
+                        return executeOp(db, uid, op).catch((error: unknown) => {
+                            // Si la sesión cambió mientras se ejecutaba, el rechazo (p. ej.
+                            // permission-denied tras cerrar sesión) no dice nada de la operación:
+                            // se trata como transitorio para no borrarla de la cola persistida de
+                            // su usuario, que la reintentará cuando vuelva a entrar.
+                            if (!isCurrent()) {
+                                throw Object.assign(new Error('La sesión cambió durante la sincronización'), {
+                                    code: 'unavailable',
+                                    cause: error,
+                                });
+                            }
+                            throw error;
+                        });
+                    },
+                    onSettled: (op, outcome) => {
+                        inFlightRef.current = null;
+                        if (!isCurrent()) return;
+                        commitEchoedInFlight(null);
+                        try {
+                            handleSettled(op, outcome, execGen);
+                        } catch (error) {
+                            console.warn('[StoreContext] error al procesar una operación', error);
+                        }
+                    },
+                });
+                if (outcome === 'offline') scheduleRetry();
+                return outcome;
+            } catch (error) {
+                console.warn('[StoreContext] error al sincronizar la cola', error);
+                if (queueRef.current.length > 0) scheduleRetry();
+                return 'error';
+            } finally {
+                // Si la operación sigue en la cola (fallo transitorio), vuelve a superponerse.
+                inFlightRef.current = null;
+                if (isCurrent()) {
+                    commitEchoedInFlight(null);
+                    setIsSyncing(false);
+                }
+            }
+        };
+
+        const run = (async () => {
+            try {
+                let result: PassResult;
+                let sessionChanged: boolean;
+                do {
+                    flushAgainRef.current = false;
+                    const passSession = sessionRef.current;
+                    result = await runPass();
+                    // Si la sesión cambió durante el pase, el resultado 'offline' (p. ej. por un
+                    // rechazo convertido en transitorio) no describe la cola de la sesión nueva: hay
+                    // que repetir para no dejarla sin sincronizar.
+                    sessionChanged = sessionRef.current !== passSession;
+                } while (flushAgainRef.current && (result === 'drained' || sessionChanged));
+                flushAgainRef.current = false;
+            } finally {
+                flushPromiseRef.current = null;
+            }
+        })();
+        flushPromiseRef.current = run;
+        return run;
+    }, [showNotice, commitQueue, commitSettled, commitEchoedInFlight, clearRetry, persist]);
+
+    // Carga la caché y la cola persistidas del usuario. La caché solo se aplica si todavía no
+    // ha llegado ningún snapshot real; la cola persistida se fusiona por delante de la de memoria.
+    const startHydration = useCallback((uid: string, session: number) => {
+        const hydration = (async () => {
+            let cache: SyncView | null = null;
+            let persisted: QueuedOp[] = [];
+            try {
+                [cache, persisted] = await Promise.all([loadCache(uid), loadQueue(uid)]);
+            } catch (error) {
+                console.warn('[StoreContext] error al hidratar', error);
+            }
+            if (sessionRef.current !== session) return;
+
+            const gen = snapshotGenRef.current;
+            if (!cache) {
+                cacheBaselineRef.current = true;
+            } else if (gen.user === 0 && gen.items === 0 && gen.goals === 0) {
+                commitServerView({ ...EMPTY_VIEW, ...cache });
+                cacheBaselineRef.current = true;
+            }
+
+            // `loadQueue` ya descarta las operaciones con forma inesperada.
+            hydratedRef.current = true;
+            if (persisted.length > 0 || queueRef.current.length > 0) {
+                commitQueue(mergeQueues(persisted, queueRef.current));
+            }
+        })();
+        hydrationRef.current = hydration;
+        void hydration.then(() => {
+            if (sessionRef.current === session) return flush();
+        });
+    }, [commitServerView, commitQueue, flush]);
+
+    // Vacía todo lo que pertenece al usuario anterior. El tema visible se conserva para que la
+    // pantalla de login no cambie de aspecto al cerrar sesión (como antes).
+    const resetSession = useCallback(() => {
+        const displayedTheme = currentView().theme;
+        sessionRef.current += 1;
+        clearRetry();
+        hydratedRef.current = false;
+        cacheBaselineRef.current = false;
+        hydrationRef.current = Promise.resolve();
+        flushAgainRef.current = false;
+        snapshotGenRef.current = INITIAL_GEN;
+        inFlightRef.current = null;
+        commitEchoedInFlight(null);
+        commitServerView({ ...EMPTY_VIEW, theme: displayedTheme });
+        queueRef.current = [];
+        setQueue([]);
+        commitSettled([]);
+        setHasItemsLoaded(false);
+        setHasUserDocLoaded(false);
+        setIsSyncing(false);
+        setNewAchievementSignal(0);
+    }, [currentView, clearRetry, commitServerView, commitSettled, commitEchoedInFlight]);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-            if (!currentUser) {
-                // Al cerrar sesión se vacía el estado derivado del usuario anterior.
-                setItems([]);
-                setGoals([]);
-                setMoneySaved(0);
-                setMoneySpent(0);
-                setSavedCount(null);
-                setHasItemsLoaded(false);
-                setNewAchievementSignal(0);
-                setHourlyWageState(null);
+            const nextUid = currentUser?.uid ?? null;
+            if (nextUid !== (userRef.current?.uid ?? null)) {
+                resetSession();
+                userRef.current = currentUser;
+                if (currentUser) startHydration(currentUser.uid, sessionRef.current);
+            } else {
+                userRef.current = currentUser;
             }
             setUser(currentUser);
             setIsLoading(false);
             SplashScreen.hideAsync();
         });
         return unsubscribeAuth;
-    }, []);
+    }, [resetSession, startHydration]);
 
     useEffect(() => {
         if (!user) return;
 
-        const userDocRef = doc(db, 'users', user.uid);
+        const uid = user.uid;
+        const session = sessionRef.current;
+        const userDocRef = doc(db, 'users', uid);
+
+        // Último contenido aplicado por cada listener en esta suscripción. Con
+        // `includeMetadataChanges` también llegan eventos solo de metadatos (p. ej. el ack de una
+        // escritura cambia `hasPendingWrites`); si el contenido no cambió no son un eco nuevo y no
+        // deben contar como tal (quitarían antes de tiempo una operación confirmada).
+        const lastApplied: Record<Listener, string | null> = { user: null, items: null, goals: null };
+
+        // Fusiona en la vista del servidor los campos que trae un snapshot real y guarda la caché.
+        // Para no pisar la caché guardada con valores por defecto, solo se escribe cuando la vista
+        // ya parte de la caché local o cuando han respondido los tres listeners.
+        // Devuelve false si el snapshot se ignoró.
+        const applyServerPatch = (listener: Listener, patch: Partial<SyncView>, contentKey: string): boolean => {
+            if (sessionRef.current !== session) return false;
+            if (lastApplied[listener] === contentKey) return false;
+            lastApplied[listener] = contentKey;
+            const gen = { ...snapshotGenRef.current, [listener]: snapshotGenRef.current[listener] + 1 };
+            snapshotGenRef.current = gen;
+            const next = { ...serverViewRef.current, ...patch };
+            commitServerView(next);
+
+            const remaining = settledRef.current.filter((entry) => !isEchoed(entry, gen));
+            if (remaining.length !== settledRef.current.length) commitSettled(remaining);
+            // Eco de la operación que aún se está ejecutando (p. ej. el commit de una transacción
+            // llega al listener antes de que resuelva `runTransaction`): deja de superponerse.
+            const inFlight = inFlightRef.current;
+            if (inFlight && echoListeners(inFlight).includes(listener)) commitEchoedInFlight(inFlight.opId);
+
+            if (cacheBaselineRef.current || (gen.user > 0 && gen.items > 0 && gen.goals > 0)) persist(() => saveCache(uid, next));
+            return true;
+        };
+
+        // Sin red, Firestore entrega snapshots desde su caché en memoria (vacía en un arranque en
+        // frío). No son datos confirmados por el servidor: se ignoran para no pisar la caché local.
+        // Con `includeMetadataChanges` el SDK vuelve a entregar el conjunto completo cuando esos
+        // mismos documentos pasan a estar sincronizados (`fromCache: false`), así que no se pierde
+        // ningún cambio al reconectar.
+        const isFromCache = (snap: { metadata?: { fromCache?: boolean } }) => snap.metadata?.fromCache === true;
+        const listenOptions: SnapshotListenOptions = { includeMetadataChanges: true };
 
         // Listen to user preferences (theme, stats)
-        const unsubscribeUser = onSnapshot(userDocRef, (docSnap) => {
+        const unsubscribeUser = onSnapshot(userDocRef, listenOptions, (docSnap) => {
+            if (isFromCache(docSnap)) return;
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                setMoneySaved(data.moneySaved || 0);
-                setMoneySpent(data.moneySpent || 0);
-                setTheme(data.theme || 'light');
-                setUserAchievements(data.achievements || []);
-                setSavedCount(typeof data.savedCount === 'number' ? data.savedCount : null);
-                setHourlyWageState(typeof data.hourlyWage === 'number' ? data.hourlyWage : null);
+                const patch: Partial<SyncView> = {
+                    moneySaved: data.moneySaved || 0,
+                    moneySpent: data.moneySpent || 0,
+                    theme: data.theme || 'light',
+                    achievements: data.achievements || [],
+                    savedCount: typeof data.savedCount === 'number' ? data.savedCount : null,
+                    hourlyWage: typeof data.hourlyWage === 'number' ? data.hourlyWage : null,
+                };
+                if (!applyServerPatch('user', patch, stableKey([true, patch, Boolean(data.supportId)]))) return;
 
                 // Ensure supportId is saved
                 if (!data.supportId) {
-                    const supportId = user.uid.slice(-6).toUpperCase();
+                    const supportId = uid.slice(-6).toUpperCase();
                     updateDoc(userDocRef, { supportId });
                 }
             } else {
+                const patch: Partial<SyncView> = {
+                    moneySaved: EMPTY_VIEW.moneySaved,
+                    moneySpent: EMPTY_VIEW.moneySpent,
+                    theme: EMPTY_VIEW.theme,
+                    achievements: EMPTY_VIEW.achievements,
+                    savedCount: EMPTY_VIEW.savedCount,
+                    hourlyWage: EMPTY_VIEW.hourlyWage,
+                };
+                if (!applyServerPatch('user', patch, stableKey([false, patch]))) return;
                 // Initialize user doc if not exists
-                const supportId = user.uid.slice(-6).toUpperCase();
+                const supportId = uid.slice(-6).toUpperCase();
                 setDoc(userDocRef, { moneySaved: 0, moneySpent: 0, theme: 'light', supportId }, { merge: true });
             }
+            setHasUserDocLoaded(true);
         });
 
         // Listen to items subcollection
-        const itemsRef = collection(userDocRef, 'items');
-        const q = query(itemsRef, orderBy('createdAt', 'desc'));
-        const unsubscribeItems = onSnapshot(q, (snapshot) => {
+        const itemsCollection = collection(userDocRef, 'items');
+        const q = query(itemsCollection, orderBy('createdAt', 'desc'));
+        const unsubscribeItems = onSnapshot(q, listenOptions, (snapshot) => {
+            if (isFromCache(snapshot)) return;
             const loadedItems: Item[] = [];
             snapshot.forEach((doc) => {
                 loadedItems.push(doc.data() as Item);
             });
-            setItems(loadedItems);
+            if (!applyServerPatch('items', { items: loadedItems }, stableKey(loadedItems))) return;
             setHasItemsLoaded(true);
         });
 
         // Listen to goals subcollection
-        const goalsRef = collection(userDocRef, 'goals');
-        const qGoals = query(goalsRef, orderBy('createdAt', 'desc'));
-        const unsubscribeGoals = onSnapshot(qGoals, (snapshot) => {
+        const goalsCollection = collection(userDocRef, 'goals');
+        const qGoals = query(goalsCollection, orderBy('createdAt', 'desc'));
+        const unsubscribeGoals = onSnapshot(qGoals, listenOptions, (snapshot) => {
+            if (isFromCache(snapshot)) return;
             const loadedGoals: Goal[] = [];
             snapshot.forEach((doc) => {
                 loadedGoals.push(doc.data() as Goal);
             });
-            setGoals(loadedGoals);
+            applyServerPatch('goals', { goals: loadedGoals }, stableKey(loadedGoals));
         });
 
         return () => {
@@ -255,17 +652,32 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             unsubscribeItems();
             unsubscribeGoals();
         };
-    }, [user]);
+    }, [user, commitServerView, commitSettled, commitEchoedInFlight, persist]);
 
     useEffect(() => {
-        if (!user || !hasItemsLoaded || savedCount !== null) return;
-        const computedSavedCount = items.filter(i => i.status === 'saved').length;
+        // Migración puntual de savedCount: solo con datos reales del servidor (nunca con la caché
+        // ni con la superposición de la cola).
+        if (!user || !hasItemsLoaded || !hasUserDocLoaded || serverView.savedCount !== null) return;
+        const computedSavedCount = serverView.items.filter(i => i.status === 'saved').length;
         setDoc(doc(db, 'users', user.uid), { savedCount: computedSavedCount }, { merge: true });
-        // Migración puntual: refleja en local el contador recién escrito en Firestore. La condición
+        // Refleja en local el contador recién escrito en Firestore. La condición
         // `savedCount !== null` de arriba evita que el efecto se repita, así que no hay cascada.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setSavedCount(computedSavedCount);
-    }, [user, hasItemsLoaded, savedCount, items]);
+        commitServerView({ ...serverViewRef.current, savedCount: computedSavedCount });
+    }, [user, hasItemsLoaded, hasUserDocLoaded, serverView, commitServerView]);
+
+    // Al recuperar la red se reproduce la cola (y se refresca el espejo usado por el motor).
+    useEffect(() => {
+        isOnlineRef.current = isOnline;
+        if (isOnline) void flush();
+    }, [isOnline, flush]);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            clearRetry();
+        };
+    }, [clearRetry]);
 
     const requestPermissions = async () => {
         if (Platform.OS === 'web' || !Notifications) return;
@@ -294,31 +706,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setupNotifications();
     }, []);
 
-    const showNotice = (nextNotice: Notice) => {
-        setNotice(nextNotice);
-    };
-
-    const clearNotice = () => {
-        setNotice(null);
-        setHasOfflineNotice(false);
-    };
-
-    const isOfflineError = (error: any) => {
-        const code = error?.code;
-        return code === 'unavailable' || code === 'network-request-failed';
-    };
-
-    const showOfflineNotice = (retry: () => void) => {
-        if (hasOfflineNotice) return true;
-        setHasOfflineNotice(true);
-        showNotice({
-            type: 'info',
-            message: 'Parece que estás offline.',
-            actionLabel: 'Reintentar',
-            onAction: retry,
-            autoHide: false,
-        });
-        return true;
+    // Encola la operación (visible al instante gracias a la superposición) y lanza la
+    // reproducción en segundo plano, tras la hidratación. No se espera al flush: con red inestable
+    // una escritura puede tardar hasta el plazo de 10 s y la interfaz no debe quedarse bloqueada.
+    // Los avisos de resultado llegan después desde `onSettled`.
+    const dispatch = (op: Op): void => {
+        if (!userRef.current) return;
+        const now = currentTimeMs();
+        const queued = { ...op, opId: createOpId(now), createdAt: now } as QueuedOp;
+        commitQueue([...queueRef.current, queued]);
+        void hydrationRef.current.then(() => flush());
     };
 
     const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
@@ -364,7 +761,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         const unlockAt = now + duration * multiplier;
-        let notificationId: string | undefined;
         const newItem: Item = {
             id: generateId(),
             name: cleanName,
@@ -375,242 +771,69 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             category,
             categoryIcon,
             categoryColor,
-            notificationId,
         };
 
-        try {
-            // Schedule notification
-            if (Platform.OS !== 'web' && Notifications) {
-                try {
-                    notificationId = await Notifications.scheduleNotificationAsync({
-                        content: {
-                            title: "¡Tiempo cumplido!",
-                            body: `¿Realmente quieres comprar ${cleanName}?`,
-                            data: { itemId: newItem.id },
-                        },
-                        trigger: {
-                            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                            seconds: duration * (unit === 'days' ? 24 * 60 * 60 : unit === 'hours' ? 60 * 60 : 60),
-                            repeats: false,
-                        },
-                    });
-                    newItem.notificationId = notificationId;
-                } catch (error) {
-                    console.warn('Error scheduling notification:', error);
-                }
+        // La notificación local se programa sin red; su id viaja con el deseo (si la operación
+        // se descarta de forma permanente, se cancela al procesar el descarte).
+        if (Platform.OS !== 'web' && Notifications) {
+            try {
+                const notificationId = await Notifications.scheduleNotificationAsync({
+                    content: {
+                        title: "¡Tiempo cumplido!",
+                        body: `¿Realmente quieres comprar ${cleanName}?`,
+                        data: { itemId: newItem.id },
+                    },
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                        seconds: duration * (unit === 'days' ? 24 * 60 * 60 : unit === 'hours' ? 60 * 60 : 60),
+                        repeats: false,
+                    },
+                });
+                // Firestore rechaza campos `undefined`: solo se añade si hay id.
+                if (notificationId) newItem.notificationId = notificationId;
+            } catch (error) {
+                console.warn('Error scheduling notification:', error);
             }
-
-            // Save to Firestore
-            const itemRef = doc(db, 'users', user.uid, 'items', newItem.id);
-            await setDoc(itemRef, newItem);
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => addItem(name, price, duration, unit, category, categoryIcon, categoryColor));
-                return;
-            }
-            if (notificationId && Notifications) {
-                try {
-                    await Notifications.cancelScheduledNotificationAsync(notificationId);
-                } catch (cancelError) {
-                    console.warn('Error canceling notification after failure:', cancelError);
-                }
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo guardar el deseo. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => addItem(name, price, duration, unit, category, categoryIcon, categoryColor),
-                autoHide: false,
-            });
         }
+
+        dispatch({ type: 'addItem', item: newItem });
     };
 
     const resolveItem = async (id: string, decision: 'buy' | 'save') => {
         if (!user) return;
-        const itemRef = doc(db, 'users', user.uid, 'items', id);
-        const userRef = doc(db, 'users', user.uid);
-        const resolvedAt = currentTimeMs();
-
-        // Racha previa: items actuales + resoluciones aún en vuelo (se calcula ANTES de
-        // registrar la entrada de esta llamada, que solo sirve a llamadas concurrentes posteriores).
-        const pendingResolutions = pendingResolutionsRef.current;
-        const itemsForStreak = itemsRef.current.map((item) => {
-            const pending = pendingResolutions.get(item.id);
-            return pending ? { ...item, status: pending.status, resolvedAt: pending.resolvedAt } : item;
-        });
-        const streakBeforeResolution = computeCurrentStreak(itemsForStreak);
-        const ownPending = { status: decision === 'save' ? ('saved' as const) : ('bought' as const), resolvedAt };
-        pendingResolutions.set(id, ownPending);
-
-        try {
-            const result = await runTransaction(db, async (transaction) => {
-                const itemSnap = await transaction.get(itemRef);
-                if (!itemSnap.exists()) return { earned: [] as string[], notificationId: null as string | null };
-
-                const item = itemSnap.data() as Item;
-                if (item.status !== 'waiting') return { earned: [] as string[], notificationId: null as string | null };
-
-                const userSnap = await transaction.get(userRef);
-                const userData = userSnap.exists() ? userSnap.data() : {};
-
-                const currentSaved = Number(userData.moneySaved || 0);
-                const currentSpent = Number(userData.moneySpent || 0);
-                const currentSavedCount = Number(userData.savedCount || 0);
-                const currentAchievements: string[] = Array.isArray(userData.achievements) ? userData.achievements : [];
-
-                const newAchievements = [...currentAchievements];
-                const newlyEarned: string[] = [];
-
-                if (decision === 'save') {
-                    const newSaved = currentSaved + item.price;
-                    const newSavedCount = currentSavedCount + 1;
-                    const newStreak = streakBeforeResolution + 1;
-
-                    if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); newlyEarned.push('Primer Ahorro'); }
-                    if (newSavedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); newlyEarned.push('Coleccionista'); }
-
-                    if (newSaved >= 100 && !newAchievements.includes('saver_100')) { newAchievements.push('saver_100'); newlyEarned.push('Ahorrador Novato'); }
-                    if (newSaved >= 200 && !newAchievements.includes('saver_200')) { newAchievements.push('saver_200'); newlyEarned.push('Buen Comienzo'); }
-                    if (newSaved >= 1000 && !newAchievements.includes('saver_1000')) { newAchievements.push('saver_1000'); newlyEarned.push('Gran Ahorrador'); }
-                    if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); newlyEarned.push('Experto'); }
-                    if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); newlyEarned.push('Magnate'); }
-                    if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); newlyEarned.push('Leyenda'); }
-
-                    if (newStreak >= 3 && !newAchievements.includes('streak_3')) { newAchievements.push('streak_3'); newlyEarned.push('Racha de Defensa'); }
-                    if (newStreak >= 5 && !newAchievements.includes('streak_5')) { newAchievements.push('streak_5'); newlyEarned.push('Disciplina de Hierro'); }
-                    if (newStreak >= 10 && !newAchievements.includes('streak_10')) { newAchievements.push('streak_10'); newlyEarned.push('Inquebrantable'); }
-
-                    transaction.update(itemRef, { status: 'saved', resolvedAt });
-                    transaction.set(userRef, {
-                        moneySaved: newSaved,
-                        savedCount: newSavedCount,
-                        achievements: newAchievements,
-                    }, { merge: true });
-                } else {
-                    const newSpent = currentSpent + item.price;
-                    transaction.update(itemRef, { status: 'bought', resolvedAt });
-                    transaction.set(userRef, { moneySpent: newSpent }, { merge: true });
-                }
-
-                return { earned: newlyEarned, notificationId: item.notificationId || null };
-            });
-
-            if (result.notificationId && Notifications) {
-                try {
-                    await Notifications.cancelScheduledNotificationAsync(result.notificationId);
-                } catch (error) {
-                    console.warn('Error canceling notification:', error);
-                }
-            }
-
-            if (result.earned.length > 0) {
-                setNewAchievementSignal((s) => s + 1);
-            } else {
-                showNotice({
-                    type: 'success',
-                    message: decision === 'save' ? '¡Ahorro sumado!' : 'Compra registrada.',
-                    autoHide: true,
-                });
-            }
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => resolveItem(id, decision));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo actualizar el deseo. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => resolveItem(id, decision),
-                autoHide: false,
-            });
-        } finally {
-            if (pendingResolutions.get(id) === ownPending) {
-                pendingResolutions.delete(id);
-            }
-        }
+        // Racha previa calculada ANTES de encolar, sobre la vista superpuesta: incluye las
+        // resoluciones que aún esperan en la cola (también las de este mismo tick).
+        const localView = currentView();
+        const streakBefore = computeCurrentStreak(localView.items);
+        const notificationId = localView.items.find((item) => item.id === id)?.notificationId;
+        dispatch({ type: 'resolveItem', itemId: id, decision, resolvedAt: currentTimeMs(), streakBefore });
+        // Se cancela ya si se conoce en local; al reproducirse se vuelve a cancelar la que
+        // devuelva el servidor (cancelar dos veces es inofensivo).
+        if (notificationId) void cancelNotification(notificationId);
     };
 
     const deleteItem = async (id: string) => {
         if (!user) return;
-        try {
-            if (Notifications) {
-                try {
-                    let notificationId = items.find(i => i.id === id)?.notificationId;
-                    if (!notificationId) {
-                        const itemSnap = await getDoc(doc(db, 'users', user.uid, 'items', id));
-                        if (itemSnap.exists()) {
-                            const data = itemSnap.data() as Item;
-                            notificationId = data.notificationId;
-                        }
-                    }
-                    if (notificationId) {
-                        await Notifications.cancelScheduledNotificationAsync(notificationId);
-                    }
-                } catch (error) {
-                    console.warn('Error canceling notification:', error);
-                }
-            }
-            await deleteDoc(doc(db, 'users', user.uid, 'items', id));
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => deleteItem(id));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo eliminar el deseo. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => deleteItem(id),
-                autoHide: false,
-            });
-        }
+        const notificationId = currentView().items.find((item) => item.id === id)?.notificationId;
+        dispatch({ type: 'deleteItem', itemId: id });
+        if (notificationId) void cancelNotification(notificationId);
     };
 
     const clearAllData = async () => {
         // Caution: This deletes everything for the user in Firestore
         // For simplicity, we just reset stats and delete items one by one
         if (!user) return;
-        try {
-            const userRef = doc(db, 'users', user.uid);
-            await updateDoc(userRef, { moneySaved: 0, moneySpent: 0 });
-
-            if (Notifications) {
-                for (const item of items) {
-                    if (item.notificationId) {
-                        try {
-                            await Notifications.cancelScheduledNotificationAsync(item.notificationId);
-                        } catch (error) {
-                            console.warn('Error canceling notification:', error);
-                        }
-                    }
-                }
-            }
-
-            await Promise.all(
-                items.map((item) => deleteDoc(doc(db, 'users', user.uid, 'items', item.id)))
-            );
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => clearAllData());
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo borrar todo. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => clearAllData(),
-                autoHide: false,
-            });
+        const currentItems = currentView().items;
+        dispatch({ type: 'clearAll', itemIds: currentItems.map((item) => item.id) });
+        for (const item of currentItems) {
+            if (item.notificationId) await cancelNotification(item.notificationId);
         }
     };
 
     const toggleTheme = async () => {
         if (!user) return;
-        const newTheme = theme === 'light' ? 'dark' : 'light';
-        await updateDoc(doc(db, 'users', user.uid), { theme: newTheme });
-        // Optimistic update
-        setTheme(newTheme);
+        const newTheme: Theme = currentView().theme === 'light' ? 'dark' : 'light';
+        dispatch({ type: 'setTheme', theme: newTheme });
     };
 
     const setHourlyWage = async (wage: number | null) => {
@@ -619,22 +842,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Sueldo por hora inválido.', autoHide: true });
             return;
         }
-        try {
-            await updateDoc(doc(db, 'users', user.uid), { hourlyWage: wage });
-            setHourlyWageState(wage);
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => setHourlyWage(wage));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo guardar el sueldo por hora. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => setHourlyWage(wage),
-                autoHide: false,
-            });
-        }
+        dispatch({ type: 'setHourlyWage', wage });
     };
 
     const addGoal = async (name: string, targetAmount: number, icon: string, color: string) => {
@@ -652,49 +860,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Monto inválido.', autoHide: true });
             return;
         }
-        try {
-            const newGoal: Goal = {
-                id: generateId(),
-                name: cleanName,
-                targetAmount,
-                currentAmount: 0,
-                icon,
-                color,
-                createdAt: currentTimeMs(),
-            };
-            await setDoc(doc(db, 'users', user.uid, 'goals', newGoal.id), newGoal);
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => addGoal(name, targetAmount, icon, color));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo crear la meta. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => addGoal(name, targetAmount, icon, color),
-                autoHide: false,
-            });
-        }
+        const newGoal: Goal = {
+            id: generateId(),
+            name: cleanName,
+            targetAmount,
+            currentAmount: 0,
+            icon,
+            color,
+            createdAt: currentTimeMs(),
+        };
+        dispatch({ type: 'addGoal', goal: newGoal });
     };
 
     const deleteGoal = async (id: string) => {
         if (!user) return;
-        try {
-            await deleteDoc(doc(db, 'users', user.uid, 'goals', id));
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => deleteGoal(id));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo eliminar la meta. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => deleteGoal(id),
-                autoHide: false,
-            });
-        }
+        dispatch({ type: 'deleteGoal', goalId: id });
     };
 
     const allocateSavings = async (goalId: string, amount: number) => {
@@ -703,43 +883,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Monto inválido.', autoHide: true });
             return;
         }
-        const goalRef = doc(db, 'users', user.uid, 'goals', goalId);
-        const userRef = doc(db, 'users', user.uid);
-        try {
-            const result = await runTransaction(db, async (transaction) => {
-                const goalSnap = await transaction.get(goalRef);
-                if (!goalSnap.exists()) return { insufficient: false };
-
-                const userSnap = await transaction.get(userRef);
-                const userData = userSnap.exists() ? userSnap.data() : {};
-                const currentSaved = Number(userData.moneySaved || 0);
-
-                if (currentSaved < amount) {
-                    return { insufficient: true };
-                }
-
-                const goal = goalSnap.data() as Goal;
-                transaction.update(goalRef, { currentAmount: goal.currentAmount + amount });
-                transaction.set(userRef, { moneySaved: currentSaved - amount }, { merge: true });
-                return { insufficient: false };
-            });
-
-            if (result?.insufficient) {
-                showNotice({ type: 'error', message: 'Fondos insuficientes.', autoHide: true });
-            }
-        } catch (error) {
-            if (isOfflineError(error)) {
-                showOfflineNotice(() => allocateSavings(goalId, amount));
-                return;
-            }
-            showNotice({
-                type: 'error',
-                message: 'No se pudo asignar el ahorro. Reintenta.',
-                actionLabel: 'Reintentar',
-                onAction: () => allocateSavings(goalId, amount),
-                autoHide: false,
-            });
+        // Las reglas de Firestore exigen currentAmount <= targetAmount: se comprueba antes de
+        // encolar (sobre la vista superpuesta) para no acabar en un rechazo permanente al reproducir.
+        const goal = currentView().goals.find((g) => g.id === goalId);
+        if (goal && goal.currentAmount + amount > goal.targetAmount) {
+            showNotice({ type: 'error', message: 'El monto supera la meta.', autoHide: true });
+            return;
         }
+        dispatch({ type: 'allocateSavings', goalId, amount });
     };
 
     const signIn = async (email: string, pass: string) => {
@@ -756,17 +907,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     return (
         <StoreContext.Provider value={{
-            items,
-            moneySaved,
-            moneySpent,
+            items: view.items,
+            moneySaved: view.moneySaved,
+            moneySpent: view.moneySpent,
             user,
-            theme,
-            hourlyWage,
+            theme: view.theme,
+            hourlyWage: view.hourlyWage,
             isLoading,
             notice,
             showNotice,
             clearNotice,
             newAchievementSignal,
+            syncStatus: { isOnline, pendingCount: queue.length, isSyncing },
             addItem,
             resolveItem,
             deleteItem,
@@ -776,8 +928,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             signOut,
             toggleTheme,
             setHourlyWage,
-            goals,
-            userAchievements,
+            goals: view.goals,
+            userAchievements: view.achievements,
             addGoal,
             deleteGoal,
             allocateSavings

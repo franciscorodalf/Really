@@ -8,12 +8,12 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint app components context utils hooks test-utils",
+    "lint": "expo lint app components context utils hooks services test-utils",
     "test": "jest"
   },
   "jest": {
     "preset": "jest-expo",
-    "setupFiles": [
+    "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.js"
     ]
   },
@@ -21,6 +21,7 @@
     "@expo-google-fonts/poppins": "^0.4.1",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
     "@react-native-community/slider": "5.2.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",

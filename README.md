@@ -84,9 +84,27 @@ Cuando quieras comprar algo, regístralo en **Really**. La app iniciará una cue
 
 3.  Escanea el código QR con tu móvil (usando Expo Go) o ejecuta en un simulador.
 
+## 🔌 Arquitectura offline-first
+
+La app sigue funcionando sin red: las acciones del usuario se aplican al instante en pantalla y se sincronizan con Firestore cuando vuelve la conexión.
+
+**Qué se cachea.** Por usuario, en `AsyncStorage` (`really:cache:v1:<uid>`): deseos, metas, dinero ahorrado y gastado, contador de ahorros, logros, tema y sueldo por hora. Al arrancar se pinta la caché de inmediato y el listener de Firestore la va refrescando con cada instantánea del servidor.
+
+**Cola de operaciones (outbox).** Cada acción (`addItem`, `resolveItem`, `deleteItem`, `clearAll`, `addGoal`, `deleteGoal`, `allocateSavings`, `setHourlyWage`, `setTheme`) se guarda como una operación con `opId` único en una cola persistente (`really:queue:v1:<uid>`). La interfaz muestra la última vista del servidor con las operaciones pendientes superpuestas (`applyOps`, pura e idempotente), por lo que el resultado es inmediato aunque no haya red. Al detectar conexión (NetInfo) el motor (`services/syncEngine.ts`) reproduce la cola en orden: un error transitorio (`unavailable`, sin red, tiempo de espera de 10 s) detiene el vaciado y se reintenta después; un error permanente descarta esa operación y se avisa al usuario. El componente `SyncStatus` de la pantalla principal muestra «Sin conexión» o «Sincronizando · N cambios» mientras haya algo pendiente.
+
+**Estrategia de conflictos.** Las operaciones que tocan totales (`resolveItem`, `allocateSavings`) se ejecutan en una transacción de Firestore que lee el estado actual del servidor y recalcula los importes, en lugar de enviar valores calculados en el dispositivo. `resolveItem` además tiene una guarda de estado: solo se aplica si el deseo sigue en `waiting`, así que resolverlo dos veces (o desde otro dispositivo) no suma dos veces. `allocateSavings` se rechaza si el ahorro disponible ya no alcanza. En el resto de casos gana el servidor.
+
+**Límites conocidos.**
+- Las escrituras son *at-least-once*: una caída entre el commit de `allocateSavings` y el borrado de la operación de la cola podría reproducirla dos veces.
+- La caché de un usuario permanece en el dispositivo tras cerrar sesión.
+- No hay resolución multi-dispositivo más allá de «gana el servidor».
+- Las instantáneas que Firestore sirve desde su caché sin red (`fromCache`) se ignoran para no pisar la caché local; los listeners usan `includeMetadataChanges`, así que al reconectar el SDK vuelve a entregar los mismos documentos ya sincronizados y la vista se pone al día. El SDK web de Firestore en React Native no tiene monitor de conectividad propio, por lo que puede tardar unos segundos en reconectar después de que vuelva la red.
+- La cola conserva el orden en que se encolaron las operaciones (las persistidas de sesiones anteriores van primero); no depende del reloj del dispositivo.
+
 ## 📂 Estructura del Proyecto
 
 - `app/`: Pantallas y rutas (incluye `stats.tsx`, `onboarding.tsx`, `history.tsx`).
-- `components/`: Componentes UI reutilizables (`ItemCard`).
+- `components/`: Componentes UI reutilizables (`ItemCard`, `SyncStatus`).
+- `services/`: Motor de sincronización offline (`syncEngine`).
 - `context/`: Estado global (`StoreContext`) y lógica de negocio.
 - `assets/`: Imágenes e iconos personalizados.

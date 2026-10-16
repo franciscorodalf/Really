@@ -21,7 +21,7 @@ jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
     setDoc: jest.fn(),
-    onSnapshot: jest.fn((ref, callback) => {
+    onSnapshot: jest.fn((ref, _options, callback) => {
         // Simula que el usuario todavía no tiene documento en Firestore.
         callback({ exists: () => false, data: () => ({}), forEach: () => { } });
         return jest.fn();
@@ -37,7 +37,7 @@ jest.mock('firebase/firestore', () => ({
 export function renderWithStore(ui: React.ReactElement, options?: { hourlyWage?: number }) {
     if (options?.hourlyWage !== undefined) {
         const { onSnapshot } = require('firebase/firestore');
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => true, data: () => ({ hourlyWage: options.hourlyWage }), forEach: () => { } });
             return jest.fn();
         });
