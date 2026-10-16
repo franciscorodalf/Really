@@ -139,6 +139,11 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
+// Helpers a nivel de módulo: solo se invocan desde handlers asíncronos (nunca durante el
+// render), y así las reglas de pureza de React no los confunden con lógica de render.
+const currentTimeMs = () => Date.now();
+const generateId = () => Math.random().toString(36).substr(2, 9);
+
 export const useStore = () => {
     const context = useContext(StoreContext);
     if (!context) {
@@ -176,6 +181,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+            if (!currentUser) {
+                // Al cerrar sesión se vacía el estado derivado del usuario anterior.
+                setItems([]);
+                setGoals([]);
+                setMoneySaved(0);
+                setMoneySpent(0);
+                setSavedCount(null);
+                setHasItemsLoaded(false);
+                setNewAchievementSignal(0);
+                setHourlyWageState(null);
+            }
             setUser(currentUser);
             setIsLoading(false);
             SplashScreen.hideAsync();
@@ -184,17 +200,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, []);
 
     useEffect(() => {
-        if (!user) {
-            setItems([]);
-            setGoals([]);
-            setMoneySaved(0);
-            setMoneySpent(0);
-            setSavedCount(null);
-            setHasItemsLoaded(false);
-            setNewAchievementSignal(0);
-            setHourlyWageState(null);
-            return;
-        }
+        if (!user) return;
 
         const userDocRef = doc(db, 'users', user.uid);
 
@@ -255,6 +261,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!user || !hasItemsLoaded || savedCount !== null) return;
         const computedSavedCount = items.filter(i => i.status === 'saved').length;
         setDoc(doc(db, 'users', user.uid), { savedCount: computedSavedCount }, { merge: true });
+        // Migración puntual: refleja en local el contador recién escrito en Firestore. La condición
+        // `savedCount !== null` de arriba evita que el efecto se repita, así que no hay cascada.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSavedCount(computedSavedCount);
     }, [user, hasItemsLoaded, savedCount, items]);
 
@@ -346,7 +355,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return;
         }
 
-        const now = Date.now();
+        const now = currentTimeMs();
         let multiplier = 1000 * 60; // minutos
         if (unit === 'days') {
             multiplier = 1000 * 60 * 60 * 24;
@@ -357,7 +366,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const unlockAt = now + duration * multiplier;
         let notificationId: string | undefined;
         const newItem: Item = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: generateId(),
             name: cleanName,
             price,
             createdAt: now,
@@ -420,7 +429,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!user) return;
         const itemRef = doc(db, 'users', user.uid, 'items', id);
         const userRef = doc(db, 'users', user.uid);
-        const resolvedAt = Date.now();
+        const resolvedAt = currentTimeMs();
 
         // Racha previa: items actuales + resoluciones aún en vuelo (se calcula ANTES de
         // registrar la entrada de esta llamada, que solo sirve a llamadas concurrentes posteriores).
@@ -645,13 +654,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         try {
             const newGoal: Goal = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: generateId(),
                 name: cleanName,
                 targetAmount,
                 currentAmount: 0,
                 icon,
                 color,
-                createdAt: Date.now(),
+                createdAt: currentTimeMs(),
             };
             await setDoc(doc(db, 'users', user.uid, 'goals', newGoal.id), newGoal);
         } catch (error) {
