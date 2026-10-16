@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { LinearGradient } from 'expo-linear-gradient';
+import { TrendCharts } from '../components/TrendCharts';
 
 // Configuración de idioma español para el calendario
 LocaleConfig.locales['es'] = {
@@ -252,6 +253,13 @@ export default function StatsScreen() {
                         Selecciona un día en el calendario para ver detalles.
                     </ThemedText>
                 )}
+
+                {/* Trend Charts */}
+                <TrendCharts
+                    items={items}
+                    type={isSaved ? 'saved' : 'bought'}
+                    accentColor={accentColor}
+                />
 
                 {/* Contrast Button */}
                 <TouchableOpacity
