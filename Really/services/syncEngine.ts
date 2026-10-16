@@ -41,7 +41,7 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
     });
 }
 
-const OTHER: OpResult = { type: 'other' };
+const other = (): OpResult => ({ type: 'other' });
 
 async function resolveItem(
     db: Firestore,
@@ -137,28 +137,28 @@ export async function executeOp(db: Firestore, uid: string, op: QueuedOp): Promi
     switch (op.type) {
         case 'addItem':
             await withTimeout(setDoc(doc(db, 'users', uid, 'items', op.item.id), op.item));
-            return OTHER;
+            return other();
         case 'deleteItem':
             await withTimeout(deleteDoc(doc(db, 'users', uid, 'items', op.itemId)));
-            return OTHER;
+            return other();
         case 'addGoal':
             await withTimeout(setDoc(doc(db, 'users', uid, 'goals', op.goal.id), op.goal));
-            return OTHER;
+            return other();
         case 'deleteGoal':
             await withTimeout(deleteDoc(doc(db, 'users', uid, 'goals', op.goalId)));
-            return OTHER;
+            return other();
         case 'setHourlyWage':
             await withTimeout(updateDoc(doc(db, 'users', uid), { hourlyWage: op.wage }));
-            return OTHER;
+            return other();
         case 'setTheme':
             await withTimeout(updateDoc(doc(db, 'users', uid), { theme: op.theme }));
-            return OTHER;
+            return other();
         case 'clearAll':
             await withTimeout(updateDoc(doc(db, 'users', uid), { moneySaved: 0, moneySpent: 0 }));
             await Promise.all(
                 op.itemIds.map((id) => withTimeout(deleteDoc(doc(db, 'users', uid, 'items', id)))),
             );
-            return OTHER;
+            return other();
         case 'resolveItem':
             return resolveItem(db, uid, op);
         case 'allocateSavings':
@@ -178,15 +178,16 @@ export async function flushQueue(args: {
 }): Promise<'drained' | 'offline'> {
     let op = args.peek();
     while (op) {
+        let outcome: SettleOutcome;
         try {
-            const result = await args.execute(op);
-            args.remove(op.opId);
-            args.onSettled(op, { status: 'done', result });
+            outcome = { status: 'done', result: await args.execute(op) };
         } catch (error) {
             if (classifyError(error) === 'transient') return 'offline';
-            args.remove(op.opId);
-            args.onSettled(op, { status: 'dropped', error });
+            outcome = { status: 'dropped', error };
         }
+        // Fuera del try: un fallo de `onSettled` no debe confundirse con un fallo de la operación.
+        args.remove(op.opId);
+        args.onSettled(op, outcome);
         op = args.peek();
     }
     return 'drained';

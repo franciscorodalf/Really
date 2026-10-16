@@ -176,7 +176,7 @@ describe('executeOp resolveItem', () => {
             notificationId: 'notif-1',
         });
         const earned = (result as Extract<OpResult, { type: 'resolveItem' }>).earned;
-        expect(earned).toHaveLength(3);
+        expect(earned).toEqual(['Primer Ahorro', 'Ahorrador Novato', 'Racha de Defensa']);
     });
 
     it('executeOp resolveItem sobre un deseo ya resuelto no escribe nada', async () => {
@@ -357,5 +357,31 @@ describe('flushQueue', () => {
 
         expect(outcome).toBe('drained');
         expect(executed).toEqual(['a', 'late']);
+    });
+    it('un fallo en onSettled no reclasifica una operación ya ejecutada', async () => {
+        const q = makeQueue([op('a'), op('b')]);
+        const settled: string[] = [];
+
+        await expect(
+            flushQueue({
+                peek: q.peek,
+                remove: q.remove,
+                execute: async () => ok,
+                onSettled: (o) => {
+                    settled.push(o.opId);
+                    if (o.opId === 'a') throw new Error('fallo de efecto secundario');
+                },
+            })
+        ).rejects.toThrow('fallo de efecto secundario');
+
+        // La operación 'a' se ejecutó y se quitó una sola vez; no se informó como descartada.
+        expect(settled).toEqual(['a']);
+        expect(q.queue.map((o) => o.opId)).toEqual(['b']);
+    });
+
+    it('classifyError trata valores que no son Error como permanentes', () => {
+        expect(classifyError(null)).toBe('permanent');
+        expect(classifyError(undefined)).toBe('permanent');
+        expect(classifyError('boom')).toBe('permanent');
     });
 });
