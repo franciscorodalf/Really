@@ -17,7 +17,7 @@ import { auth, db } from '../firebaseConfig';
 import { computeCurrentStreak } from '../utils/gamificationStats';
 import { applyOps, createOpId, EMPTY_VIEW, type Op, type QueuedOp, type SyncView } from '../utils/offlineOps';
 import { loadCache, loadQueue, saveCache, saveQueue } from '../utils/offlineStorage';
-import { executeOp, flushQueue, type OpResult, type SettleOutcome } from '../services/syncEngine';
+import { executeOp, flushQueue, type SettleOutcome } from '../services/syncEngine';
 import { useNetworkStatus } from '../hooks/use-network-status';
 import type { Item, Goal, Theme } from './types';
 import {
@@ -178,43 +178,9 @@ const overlayOps = (settled: SettledOp[], queue: QueuedOp[], echoedOpId: string 
 ];
 
 // --- Cola persistida -------------------------------------------------------------------------
-const isRecord = (value: unknown): value is Record<string, any> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
-const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
-const isString = (value: unknown): value is string => typeof value === 'string';
-
-// `loadQueue` solo comprueba `opId` y `type`; una operación con forma inesperada rompería la
-// superposición durante el render, así que se descarta al hidratar.
-function isWellFormedOp(op: QueuedOp): boolean {
-    const o = op as unknown as Record<string, any>;
-    if (!isFiniteNumber(o.createdAt)) return false;
-    switch (o.type) {
-        case 'addItem':
-            return isRecord(o.item) && isString(o.item.id) && isFiniteNumber(o.item.price) && isFiniteNumber(o.item.createdAt);
-        case 'resolveItem':
-            return isString(o.itemId) && (o.decision === 'buy' || o.decision === 'save')
-                && isFiniteNumber(o.resolvedAt) && isFiniteNumber(o.streakBefore);
-        case 'deleteItem':
-            return isString(o.itemId);
-        case 'clearAll':
-            return Array.isArray(o.itemIds) && o.itemIds.every(isString);
-        case 'addGoal':
-            return isRecord(o.goal) && isString(o.goal.id) && isFiniteNumber(o.goal.currentAmount) && isFiniteNumber(o.goal.createdAt);
-        case 'deleteGoal':
-            return isString(o.goalId);
-        case 'allocateSavings':
-            return isString(o.goalId) && isFiniteNumber(o.amount);
-        case 'setHourlyWage':
-            return o.wage === null || isFiniteNumber(o.wage);
-        case 'setTheme':
-            return o.theme === 'light' || o.theme === 'dark';
-        default:
-            return false;
-    }
-}
-
-// Las operaciones persistidas van antes que las creadas en memoria durante la hidratación; se
-// quitan duplicados por `opId` y se ordena por `createdAt` (orden estable ante empates).
+// Las operaciones persistidas van antes que las creadas en memoria durante la hidratación, y
+// se quitan duplicados por `opId`. No se reordena por `createdAt`: es el reloj del dispositivo y
+// un cambio de hora entre sesiones alteraría el orden real en que se encolaron.
 const mergeQueues = (persisted: QueuedOp[], inMemory: QueuedOp[]): QueuedOp[] => {
     const seen = new Set<string>();
     const merged: QueuedOp[] = [];
@@ -223,7 +189,7 @@ const mergeQueues = (persisted: QueuedOp[], inMemory: QueuedOp[]): QueuedOp[] =>
         seen.add(op.opId);
         merged.push(op);
     }
-    return merged.sort((a, b) => a.createdAt - b.createdAt);
+    return merged;
 };
 
 // Nunca lanza: se usa también desde `onSettled`, que no debe fallar.
@@ -342,8 +308,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, []);
 
     // Reproduce la cola contra Firestore. Single-flight: si ya hay un flush en curso, se marca
-    // para repetir la pasada al terminar y se devuelve la misma promesa, así quien acaba de
-    // encolar espera también a que se ejecute su operación.
+    // para repetir la pasada al terminar (recoge operaciones encoladas tras el último `peek`) y se
+    // devuelve la misma promesa. Si la pasada acaba sin red no se repite: ya actuarán el reintento
+    // de 15 s o la reconexión.
     const flush = useCallback(function flushImpl(): Promise<void> {
         if (flushPromiseRef.current) {
             flushAgainRef.current = true;
@@ -360,7 +327,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 return;
             }
 
-            const result = outcome.result as OpResult | undefined;
+            const result = outcome.result;
             let keepOverlay = true;
             if (op.type === 'resolveItem' && result?.type === 'resolveItem') {
                 if (result.notificationId) void cancelNotification(result.notificationId);
@@ -387,12 +354,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         };
 
-        const runPass = async () => {
+        type PassResult = 'skipped' | 'drained' | 'offline' | 'error';
+
+        const runPass = async (): Promise<PassResult> => {
             const currentUser = userRef.current;
             const session = sessionRef.current;
-            if (!currentUser || !hydratedRef.current || !isOnlineRef.current) return;
+            if (!currentUser || !hydratedRef.current || !isOnlineRef.current) return 'skipped';
             clearRetry();
-            if (queueRef.current.length === 0) return;
+            if (queueRef.current.length === 0) return 'drained';
 
             const uid = currentUser.uid;
             const isCurrent = () => sessionRef.current === session;
@@ -426,7 +395,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     execute: (op) => {
                         execGen = { ...snapshotGenRef.current };
                         inFlightRef.current = op;
-                        return executeOp(db, uid, op);
+                        return executeOp(db, uid, op).catch((error: unknown) => {
+                            // Si la sesión cambió mientras se ejecutaba, el rechazo (p. ej.
+                            // permission-denied tras cerrar sesión) no dice nada de la operación:
+                            // se trata como transitorio para no borrarla de la cola persistida de
+                            // su usuario, que la reintentará cuando vuelva a entrar.
+                            if (!isCurrent()) {
+                                throw Object.assign(new Error('La sesión cambió durante la sincronización'), {
+                                    code: 'unavailable',
+                                    cause: error,
+                                });
+                            }
+                            throw error;
+                        });
                     },
                     onSettled: (op, outcome) => {
                         inFlightRef.current = null;
@@ -440,9 +421,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     },
                 });
                 if (outcome === 'offline') scheduleRetry();
+                return outcome;
             } catch (error) {
                 console.warn('[StoreContext] error al sincronizar la cola', error);
                 if (queueRef.current.length > 0) scheduleRetry();
+                return 'error';
             } finally {
                 // Si la operación sigue en la cola (fallo transitorio), vuelve a superponerse.
                 inFlightRef.current = null;
@@ -455,10 +438,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const run = (async () => {
             try {
+                let result: PassResult;
                 do {
                     flushAgainRef.current = false;
-                    await runPass();
-                } while (flushAgainRef.current);
+                    result = await runPass();
+                } while (flushAgainRef.current && result === 'drained');
+                flushAgainRef.current = false;
             } finally {
                 flushPromiseRef.current = null;
             }
@@ -488,10 +473,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 cacheBaselineRef.current = true;
             }
 
-            const valid = persisted.filter(isWellFormedOp);
+            // `loadQueue` ya descarta las operaciones con forma inesperada.
             hydratedRef.current = true;
-            if (valid.length > 0 || queueRef.current.length > 0 || valid.length !== persisted.length) {
-                commitQueue(mergeQueues(valid, queueRef.current));
+            if (persisted.length > 0 || queueRef.current.length > 0) {
+                commitQueue(mergeQueues(persisted, queueRef.current));
             }
         })();
         hydrationRef.current = hydration;
@@ -706,14 +691,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setupNotifications();
     }, []);
 
-    // Encola la operación (visible al instante gracias a la superposición), espera a que termine
-    // la hidratación y la reproduce. Con red, la promesa se resuelve cuando ya se ha ejecutado.
-    const dispatch = (op: Op): Promise<void> => {
-        if (!userRef.current) return Promise.resolve();
+    // Encola la operación (visible al instante gracias a la superposición) y lanza la
+    // reproducción en segundo plano, tras la hidratación. No se espera al flush: con red inestable
+    // una escritura puede tardar hasta el plazo de 10 s y la interfaz no debe quedarse bloqueada.
+    // Los avisos de resultado llegan después desde `onSettled`.
+    const dispatch = (op: Op): void => {
+        if (!userRef.current) return;
         const now = currentTimeMs();
         const queued = { ...op, opId: createOpId(now), createdAt: now } as QueuedOp;
         commitQueue([...queueRef.current, queued]);
-        return hydrationRef.current.then(() => flush());
+        void hydrationRef.current.then(() => flush());
     };
 
     const addItem = async (name: string, price: number, duration: number, unit: 'days' | 'hours' | 'minutes', category: string = 'Otros', categoryIcon: string = 'pricetag', categoryColor: string = '#999') => {
@@ -794,7 +781,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         }
 
-        await dispatch({ type: 'addItem', item: newItem });
+        dispatch({ type: 'addItem', item: newItem });
     };
 
     const resolveItem = async (id: string, decision: 'buy' | 'save') => {
@@ -804,19 +791,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const localView = currentView();
         const streakBefore = computeCurrentStreak(localView.items);
         const notificationId = localView.items.find((item) => item.id === id)?.notificationId;
-        const done = dispatch({ type: 'resolveItem', itemId: id, decision, resolvedAt: currentTimeMs(), streakBefore });
+        dispatch({ type: 'resolveItem', itemId: id, decision, resolvedAt: currentTimeMs(), streakBefore });
         // Se cancela ya si se conoce en local; al reproducirse se vuelve a cancelar la que
         // devuelva el servidor (cancelar dos veces es inofensivo).
         if (notificationId) void cancelNotification(notificationId);
-        await done;
     };
 
     const deleteItem = async (id: string) => {
         if (!user) return;
         const notificationId = currentView().items.find((item) => item.id === id)?.notificationId;
-        const done = dispatch({ type: 'deleteItem', itemId: id });
+        dispatch({ type: 'deleteItem', itemId: id });
         if (notificationId) void cancelNotification(notificationId);
-        await done;
     };
 
     const clearAllData = async () => {
@@ -824,17 +809,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // For simplicity, we just reset stats and delete items one by one
         if (!user) return;
         const currentItems = currentView().items;
-        const done = dispatch({ type: 'clearAll', itemIds: currentItems.map((item) => item.id) });
+        dispatch({ type: 'clearAll', itemIds: currentItems.map((item) => item.id) });
         for (const item of currentItems) {
             if (item.notificationId) await cancelNotification(item.notificationId);
         }
-        await done;
     };
 
     const toggleTheme = async () => {
         if (!user) return;
         const newTheme: Theme = currentView().theme === 'light' ? 'dark' : 'light';
-        await dispatch({ type: 'setTheme', theme: newTheme });
+        dispatch({ type: 'setTheme', theme: newTheme });
     };
 
     const setHourlyWage = async (wage: number | null) => {
@@ -843,7 +827,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Sueldo por hora inválido.', autoHide: true });
             return;
         }
-        await dispatch({ type: 'setHourlyWage', wage });
+        dispatch({ type: 'setHourlyWage', wage });
     };
 
     const addGoal = async (name: string, targetAmount: number, icon: string, color: string) => {
@@ -870,12 +854,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             color,
             createdAt: currentTimeMs(),
         };
-        await dispatch({ type: 'addGoal', goal: newGoal });
+        dispatch({ type: 'addGoal', goal: newGoal });
     };
 
     const deleteGoal = async (id: string) => {
         if (!user) return;
-        await dispatch({ type: 'deleteGoal', goalId: id });
+        dispatch({ type: 'deleteGoal', goalId: id });
     };
 
     const allocateSavings = async (goalId: string, amount: number) => {
@@ -884,7 +868,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             showNotice({ type: 'error', message: 'Monto inválido.', autoHide: true });
             return;
         }
-        await dispatch({ type: 'allocateSavings', goalId, amount });
+        // Las reglas de Firestore exigen currentAmount <= targetAmount: se comprueba antes de
+        // encolar (sobre la vista superpuesta) para no acabar en un rechazo permanente al reproducir.
+        const goal = currentView().goals.find((g) => g.id === goalId);
+        if (goal && goal.currentAmount + amount > goal.targetAmount) {
+            showNotice({ type: 'error', message: 'El monto supera la meta.', autoHide: true });
+            return;
+        }
+        dispatch({ type: 'allocateSavings', goalId, amount });
     };
 
     const signIn = async (email: string, pass: string) => {

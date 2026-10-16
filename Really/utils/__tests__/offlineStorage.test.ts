@@ -92,6 +92,22 @@ describe('offlineStorage', () => {
         expect(await loadQueue('u')).toEqual([valid1, valid2]);
     });
 
+    it('loadQueue descarta operaciones cuya forma no encaja con su tipo', async () => {
+        const valid = makeOp(1);
+        await AsyncStorage.setItem(
+            queueKey('u'),
+            JSON.stringify([
+                { type: 'addItem', opId: 'sin-item', createdAt: 1 },
+                { type: 'allocateSavings', goalId: 'g', amount: '50', opId: 'monto-texto', createdAt: 1 },
+                { type: 'resolveItem', itemId: 'i', decision: 'tirar', resolvedAt: 1, streakBefore: 0, opId: 'decision', createdAt: 1 },
+                { type: 'deleteItem', itemId: 'i', opId: 'sin-fecha' },
+                { type: 'desconocida', opId: 'tipo', createdAt: 1 },
+                valid,
+            ]),
+        );
+        expect(await loadQueue('u')).toEqual([valid]);
+    });
+
     it('loadQueue devuelve [] si el JSON no es un array', async () => {
         await AsyncStorage.setItem(queueKey('u'), '{"opId":"x","type":"deleteItem"}');
         expect(await loadQueue('u')).toEqual([]);

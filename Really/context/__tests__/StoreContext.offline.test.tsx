@@ -737,6 +737,159 @@ describe('StoreContext offline-first', () => {
         }
     });
 
+    describe('dispatch no bloquea la interfaz', () => {
+        it('addItem se resuelve aunque el setDoc se quede colgado', async () => {
+            jest.useFakeTimers();
+            try {
+                firestore.setDoc.mockImplementation((ref: { path: string }) =>
+                    ref.path.includes('/items/') ? new Promise(() => { }) : Promise.resolve(),
+                );
+                const wrapper = ({ children }: { children: React.ReactNode }) => <StoreProvider>{children}</StoreProvider>;
+                const { result } = renderHook(() => useStore(), { wrapper });
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(0);
+                });
+
+                let resolved = false;
+                await act(async () => {
+                    await result.current.addItem('Zapatillas', 30, 1, 'days').then(() => { resolved = true; });
+                });
+                expect(resolved).toBe(true);
+                expect(result.current.items).toEqual([expect.objectContaining({ name: 'Zapatillas' })]);
+                expect(result.current.syncStatus.pendingCount).toBe(1);
+                expect(firestore.setDoc).toHaveBeenCalledWith(
+                    expect.objectContaining({ path: expect.stringContaining('/items/') }),
+                    expect.objectContaining({ name: 'Zapatillas' }),
+                );
+
+                // Vence el plazo de escritura: fallo transitorio, la operación sigue en la cola.
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(10_000);
+                });
+                expect(result.current.syncStatus.pendingCount).toBe(1);
+                expect(result.current.notice).toBeNull();
+            } finally {
+                firestore.setDoc.mockImplementation(() => Promise.resolve());
+                jest.useRealTimers();
+            }
+        });
+
+        it('un pase que termina sin red no se relanza al instante por las operaciones nuevas', async () => {
+            await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10 });
+            let release: () => void = () => { };
+            const gate = new Promise<void>((resolve) => { release = resolve; });
+            firestore.runTransaction.mockImplementation(async () => {
+                await gate;
+                throw { code: 'unavailable' };
+            });
+            const { result } = await renderStore();
+
+            await act(async () => {
+                await result.current.resolveItem('x', 'save');
+            });
+            await settle();
+            // Llega otra operación mientras el pase está en vuelo.
+            await act(async () => {
+                await result.current.addItem('Nuevo', 5, 1, 'days');
+            });
+            release();
+            await settle();
+
+            expect(firestore.runTransaction).toHaveBeenCalledTimes(1);
+            expect(firestore.setDoc).not.toHaveBeenCalledWith(
+                expect.objectContaining({ path: expect.stringContaining('/items/') }),
+                expect.anything(),
+            );
+            expect(result.current.syncStatus.pendingCount).toBe(2);
+        });
+    });
+
+    it('una operación rechazada tras cerrar sesión se conserva en la cola persistida', async () => {
+        await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10 });
+        let release: () => void = () => { };
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        firestore.runTransaction.mockImplementation(async () => {
+            await gate;
+            // Ya sin sesión, Firestore rechaza por permisos.
+            throw { code: 'permission-denied' };
+        });
+        const { result } = await renderStore();
+
+        await act(async () => {
+            await result.current.resolveItem('x', 'save');
+        });
+        await settle();
+        expect(await readJson(queueKey('test-user'))).toHaveLength(1);
+
+        await act(async () => {
+            mockAuth.callback?.(null);
+        });
+        release();
+        await settle();
+
+        const persisted = await readJson(queueKey('test-user'));
+        expect(persisted).toHaveLength(1);
+        expect(persisted[0]).toMatchObject({ type: 'resolveItem', itemId: 'x' });
+        expect(result.current.notice).toBeNull();
+    });
+
+    it('las operaciones persistidas van primero aunque su createdAt sea posterior', async () => {
+        // Reloj del dispositivo adelantado en una sesión anterior.
+        const old = makeItem({ id: 'old', name: 'Antiguo' });
+        await seedQueue('test-user', [{ type: 'addItem', item: old, opId: 'op-old', createdAt: 9_000_000_000_000 } as QueuedOp]);
+        mockedNetwork.mockReturnValue(false);
+        const wrapper = ({ children }: { children: React.ReactNode }) => <StoreProvider>{children}</StoreProvider>;
+        const { result, rerender } = renderHook(() => useStore(), { wrapper });
+
+        await act(async () => {
+            await result.current.addItem('Nuevo', 10, 1, 'days');
+        });
+        await settle();
+        await setOnline(rerender, true);
+
+        const names = firestore.setDoc.mock.calls
+            .filter(([ref]: [{ path: string }]) => ref.path.includes('/items/'))
+            .map(([, data]: [unknown, { name: string }]) => data.name);
+        expect(names).toEqual(['Antiguo', 'Nuevo']);
+    });
+
+    it('allocateSavings no encola si el monto supera la meta', async () => {
+        mockedNetwork.mockReturnValue(false);
+        await seedCache('test-user', { goals: [{ ...goalG, targetAmount: 500, currentAmount: 480 }], moneySaved: 100 });
+        const { result } = await renderStore();
+
+        await act(async () => {
+            await result.current.allocateSavings('g', 30);
+        });
+
+        expect(result.current.notice).toEqual(expect.objectContaining({ type: 'error', message: 'El monto supera la meta.' }));
+        expect(result.current.syncStatus.pendingCount).toBe(0);
+        expect(result.current.goals[0].currentAmount).toBe(480);
+        expect(result.current.moneySaved).toBe(100);
+
+        await act(async () => {
+            await result.current.allocateSavings('g', 20);
+        });
+        expect(result.current.syncStatus.pendingCount).toBe(1);
+        expect(result.current.goals[0].currentAmount).toBe(500);
+    });
+
+    it('una operación persistida con forma inesperada se ignora al hidratar', async () => {
+        mockedNetwork.mockReturnValue(false);
+        await AsyncStorage.setItem(queueKey('test-user'), JSON.stringify([
+            { type: 'addItem', opId: 'roto', createdAt: 1 },
+            { type: 'allocateSavings', goalId: 'g', amount: '50', opId: 'roto-2', createdAt: 2 },
+            { type: 'deleteItem', itemId: 'a', opId: 'ok', createdAt: 3 },
+        ]));
+        await seedCache('test-user', { items: [makeItem({ id: 'a' }), makeItem({ id: 'b' })], moneySaved: 100 });
+
+        const { result } = await renderStore();
+
+        expect(result.current.items.map((i) => i.id)).toEqual(['b']);
+        expect(result.current.moneySaved).toBe(100);
+        expect(result.current.syncStatus.pendingCount).toBe(1);
+    });
+
     it('la caché no cuenta como snapshot real para la migración de savedCount', async () => {
         await seedCache('test-user', { items: savedItems(2), savedCount: null });
         await renderStore();
