@@ -16,7 +16,8 @@ export default function SyncStatus() {
 
     const theme = Colors[colorScheme];
     const offline = !isOnline;
-    // Sin conexión usa el color de aviso del tema; sincronizando, el primario.
+    // El acento (gris sin conexión, primario sincronizando) solo tiñe borde, fondo e icono; el texto
+    // usa el color de texto del tema para mantener el contraste sobre el tinte.
     const accent = offline ? theme.subtext : theme.primary;
     const iconName = offline ? 'cloud-offline-outline' : 'sync-outline';
 
@@ -32,18 +33,31 @@ export default function SyncStatus() {
 
     return (
         <View style={styles.wrapper}>
-            <View style={[styles.pill, { backgroundColor: `${accent}1A`, borderColor: accent }]}>
-                <Ionicons name={iconName} size={14} color={accent} />
-                <ThemedText style={[styles.label, { color: accent }]}>{label}</ThemedText>
+            <View
+                testID="sync-status"
+                accessibilityRole="text"
+                accessibilityLiveRegion="polite"
+                style={[styles.pill, { backgroundColor: `${accent}1A`, borderColor: accent }]}
+            >
+                <Ionicons
+                    name={iconName}
+                    size={14}
+                    color={accent}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                />
+                <ThemedText style={[styles.label, { color: theme.text }]}>{label}</ThemedText>
             </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
+    // La cabecera ya deja 24 de margen inferior: -8 arriba y 16 abajo dejan 16 a cada lado.
     wrapper: {
         alignItems: 'center',
-        marginVertical: 8,
+        marginTop: -8,
+        marginBottom: 16,
     },
     pill: {
         flexDirection: 'row',
