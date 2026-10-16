@@ -10,3 +10,17 @@
 jest.mock('react-native-worklets', () =>
     require('react-native-worklets/lib/module/mock')
 );
+
+// AsyncStorage has no native module under Jest. Use the official in-memory
+// mock and wipe it after every test so suites never see each other's data.
+jest.mock('@react-native-async-storage/async-storage', () =>
+    require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
+afterEach(async () => {
+    const storage = require('@react-native-async-storage/async-storage');
+    const asyncStorage = storage.default ?? storage;
+    if (asyncStorage && typeof asyncStorage.clear === 'function') {
+        await asyncStorage.clear();
+    }
+});
