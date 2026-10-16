@@ -127,9 +127,16 @@ const DROP_MESSAGES: Record<Op['type'], string> = {
 // --- Operaciones confirmadas a la espera del eco del servidor -------------------------------
 // Cuando una operación termina bien sale de la cola, pero el listener correspondiente puede
 // tardar en traer el cambio (las transacciones no tienen compensación de latencia). Para que la
-// vista no «parpadee» al estado anterior, la operación se sigue superponiendo hasta que todos
-// los listeners que reflejan su efecto hayan entregado un snapshot real posterior a su ejecución.
-// Las reglas de `applyOps` son idempotentes frente a una vista que ya contiene el efecto.
+// vista no «parpadee» al estado anterior, la operación se sigue superponiendo hasta que llegue
+// el eco del servidor.
+//
+// OJO: `applyOps` NO es idempotente frente a un eco parcial. Si `resolveItem` ya se ve en el
+// documento de usuario (moneySaved sumado) pero el deseo sigue `waiting` en la vista de deseos,
+// volver a superponerla suma el precio dos veces; `allocateSavings` resta/suma de nuevo siempre.
+// Como el SDK entrega cada listener por separado (y React puede renderizar entre ambos), la
+// operación deja de superponerse en cuanto CUALQUIERA de sus listeners entrega un snapshot real
+// posterior a su ejecución: se prefiere un parpadeo breve de estado a un total erróneo. La misma
+// regla se aplica a la operación que se está ejecutando (máscara `echoedInFlight`).
 type Listener = 'user' | 'items' | 'goals';
 type SnapshotGen = Record<Listener, number>;
 interface SettledOp {
@@ -160,7 +167,14 @@ const echoListeners = (op: Op): Listener[] => {
 };
 
 const isEchoed = (entry: SettledOp, gen: SnapshotGen) =>
-    echoListeners(entry.op).every((listener) => gen[listener] > entry.gen[listener]);
+    echoListeners(entry.op).some((listener) => gen[listener] > entry.gen[listener]);
+
+// Operaciones que se superponen a la vista del servidor: las confirmadas sin eco y la cola,
+// salvo la que se está ejecutando si ya ha llegado su eco (`echoedOpId`).
+const overlayOps = (settled: SettledOp[], queue: QueuedOp[], echoedOpId: string | null): QueuedOp[] => [
+    ...settled.map((entry) => entry.op),
+    ...(echoedOpId === null ? queue : queue.filter((op) => op.opId !== echoedOpId)),
+];
 
 // --- Cola persistida -------------------------------------------------------------------------
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -240,6 +254,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [serverView, setServerView] = useState<SyncView>(EMPTY_VIEW);
     const [queue, setQueue] = useState<QueuedOp[]>([]);
     const [settled, setSettled] = useState<SettledOp[]>([]);
+    const [echoedInFlight, setEchoedInFlight] = useState<string | null>(null);
     const [hasItemsLoaded, setHasItemsLoaded] = useState(false);
     const [hasUserDocLoaded, setHasUserDocLoaded] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -251,6 +266,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const serverViewRef = useRef<SyncView>(EMPTY_VIEW);
     const queueRef = useRef<QueuedOp[]>([]);
     const settledRef = useRef<SettledOp[]>([]);
+    // Operación en ejecución y, si ya llegó el eco de alguno de sus listeners, su opId.
+    const inFlightRef = useRef<QueuedOp | null>(null);
+    const echoedInFlightRef = useRef<string | null>(null);
+    const mountedRef = useRef(false);
     const snapshotGenRef = useRef<SnapshotGen>(INITIAL_GEN);
     const isOnlineRef = useRef(isOnline);
     // Cada cambio de usuario abre una «sesión» nueva; los resultados asíncronos de otra sesión se ignoran.
@@ -267,8 +286,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const persistChainRef = useRef<Promise<void>>(Promise.resolve());
 
     const view = useMemo(
-        () => applyOps(serverView, [...settled.map((entry) => entry.op), ...queue]),
-        [serverView, settled, queue],
+        () => applyOps(serverView, overlayOps(settled, queue, echoedInFlight)),
+        [serverView, settled, queue, echoedInFlight],
     );
 
     const showNotice = useCallback((nextNotice: Notice) => {
@@ -295,6 +314,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSettled(next);
     }, []);
 
+    const commitEchoedInFlight = useCallback((opId: string | null) => {
+        if (echoedInFlightRef.current === opId) return;
+        echoedInFlightRef.current = opId;
+        setEchoedInFlight(opId);
+    }, []);
+
     // Actualiza la cola en memoria y, una vez hidratada, la persiste para el usuario actual.
     const commitQueue = useCallback((next: QueuedOp[]) => {
         queueRef.current = next;
@@ -304,7 +329,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [persist]);
 
     const currentView = useCallback(
-        () => applyOps(serverViewRef.current, [...settledRef.current.map((entry) => entry.op), ...queueRef.current]),
+        () => applyOps(serverViewRef.current, overlayOps(settledRef.current, queueRef.current, echoedInFlightRef.current)),
         [],
     );
 
@@ -370,6 +395,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             const uid = currentUser.uid;
             const isCurrent = () => sessionRef.current === session;
+            // No se arma un reintento si el provider ya se desmontó o cambió la sesión mientras
+            // el pase estaba en vuelo (el temporizador quedaría huérfano).
+            const scheduleRetry = () => {
+                if (!mountedRef.current || !isCurrent()) return;
+                clearRetry();
+                retryTimerRef.current = setTimeout(() => {
+                    retryTimerRef.current = null;
+                    void flushImpl();
+                }, RETRY_DELAY_MS);
+            };
             let execGen: SnapshotGen = snapshotGenRef.current;
             setIsSyncing(true);
             try {
@@ -389,10 +424,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     },
                     execute: (op) => {
                         execGen = { ...snapshotGenRef.current };
+                        inFlightRef.current = op;
                         return executeOp(db, uid, op);
                     },
                     onSettled: (op, outcome) => {
+                        inFlightRef.current = null;
                         if (!isCurrent()) return;
+                        commitEchoedInFlight(null);
                         try {
                             handleSettled(op, outcome, execGen);
                         } catch (error) {
@@ -400,22 +438,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         }
                     },
                 });
-                if (outcome === 'offline' && isCurrent()) {
-                    retryTimerRef.current = setTimeout(() => {
-                        retryTimerRef.current = null;
-                        void flushImpl();
-                    }, RETRY_DELAY_MS);
-                }
+                if (outcome === 'offline') scheduleRetry();
             } catch (error) {
                 console.warn('[StoreContext] error al sincronizar la cola', error);
-                if (isCurrent() && queueRef.current.length > 0) {
-                    retryTimerRef.current = setTimeout(() => {
-                        retryTimerRef.current = null;
-                        void flushImpl();
-                    }, RETRY_DELAY_MS);
-                }
+                if (queueRef.current.length > 0) scheduleRetry();
             } finally {
-                if (isCurrent()) setIsSyncing(false);
+                // Si la operación sigue en la cola (fallo transitorio), vuelve a superponerse.
+                inFlightRef.current = null;
+                if (isCurrent()) {
+                    commitEchoedInFlight(null);
+                    setIsSyncing(false);
+                }
             }
         };
 
@@ -431,7 +464,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         })();
         flushPromiseRef.current = run;
         return run;
-    }, [showNotice, commitQueue, commitSettled, clearRetry, persist]);
+    }, [showNotice, commitQueue, commitSettled, commitEchoedInFlight, clearRetry, persist]);
 
     // Carga la caché y la cola persistidas del usuario. La caché solo se aplica si todavía no
     // ha llegado ningún snapshot real; la cola persistida se fusiona por delante de la de memoria.
@@ -477,6 +510,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         hydrationRef.current = Promise.resolve();
         flushAgainRef.current = false;
         snapshotGenRef.current = INITIAL_GEN;
+        inFlightRef.current = null;
+        commitEchoedInFlight(null);
         commitServerView({ ...EMPTY_VIEW, theme: displayedTheme });
         queueRef.current = [];
         setQueue([]);
@@ -485,7 +520,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setHasUserDocLoaded(false);
         setIsSyncing(false);
         setNewAchievementSignal(0);
-    }, [currentView, clearRetry, commitServerView, commitSettled]);
+    }, [currentView, clearRetry, commitServerView, commitSettled, commitEchoedInFlight]);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -525,6 +560,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             const remaining = settledRef.current.filter((entry) => !isEchoed(entry, gen));
             if (remaining.length !== settledRef.current.length) commitSettled(remaining);
+            // Eco de la operación que aún se está ejecutando (p. ej. el commit de una transacción
+            // llega al listener antes de que resuelva `runTransaction`): deja de superponerse.
+            const inFlight = inFlightRef.current;
+            if (inFlight && echoListeners(inFlight).includes(listener)) commitEchoedInFlight(inFlight.opId);
 
             if (cacheBaselineRef.current || (gen.user > 0 && gen.items > 0 && gen.goals > 0)) persist(() => saveCache(uid, next));
         };
@@ -598,7 +637,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             unsubscribeItems();
             unsubscribeGoals();
         };
-    }, [user, commitServerView, commitSettled, persist]);
+    }, [user, commitServerView, commitSettled, commitEchoedInFlight, persist]);
 
     useEffect(() => {
         // Migración puntual de savedCount: solo con datos reales del servidor (nunca con la caché
@@ -617,7 +656,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (isOnline) void flush();
     }, [isOnline, flush]);
 
-    useEffect(() => clearRetry, [clearRetry]);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            clearRetry();
+        };
+    }, [clearRetry]);
 
     const requestPermissions = async () => {
         if (Platform.OS === 'web' || !Notifications) return;

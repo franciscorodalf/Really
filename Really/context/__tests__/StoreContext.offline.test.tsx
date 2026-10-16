@@ -162,6 +162,16 @@ beforeEach(() => {
     mockedNetwork.mockReturnValue(true);
 });
 
+const goalG = { id: 'g', name: 'Viaje', targetAmount: 500, currentAmount: 0, icon: 'airplane', color: '#000', createdAt: 1 };
+
+const makeAllocateTransaction = (moneySaved: number) => ({
+    get: jest.fn()
+        .mockResolvedValueOnce({ exists: () => true, data: () => goalG })
+        .mockResolvedValueOnce({ exists: () => true, data: () => ({ moneySaved }) }),
+    update: jest.fn(),
+    set: jest.fn(),
+});
+
 describe('StoreContext offline-first', () => {
     it('arranque en frío sin red: muestra los datos de la caché', async () => {
         mockedNetwork.mockReturnValue(false);
@@ -571,7 +581,7 @@ describe('StoreContext offline-first', () => {
         expect(cached.moneySaved).toBe(7);
     });
 
-    it('sin caché previa no guarda una vista a medias antes de hidratar', async () => {
+    it('un snapshot real anterior a la hidratación no pisa la caché guardada con una vista a medias', async () => {
         await seedCache('test-user', { items: [makeItem({ id: 'guardado' })], moneySaved: 80 });
         const wrapper = ({ children }: { children: React.ReactNode }) => <StoreProvider>{children}</StoreProvider>;
         renderHook(() => useStore(), { wrapper });
@@ -581,6 +591,142 @@ describe('StoreContext offline-first', () => {
 
         const cached = await readJson(cacheKey('test-user'));
         expect(cached.moneySaved).toBe(80);
+    });
+
+    describe('ecos parciales del servidor (cada listener llega por separado)', () => {
+        const renderResolved = async () => {
+            await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10, savedCount: 0 });
+            const tx = makeTransaction(makeItem({ id: 'x', price: 20 }), { moneySaved: 10, savedCount: 0, achievements: ['first_save'] });
+            firestore.runTransaction.mockImplementation(async (_db: unknown, fn: (t: unknown) => unknown) => fn(tx));
+            const hook = await renderStore();
+            await act(async () => {
+                await hook.result.current.resolveItem('x', 'save');
+            });
+            // Confirmada y todavía sin eco: la vista ya muestra el ahorro.
+            expect(hook.result.current.moneySaved).toBe(30);
+            return hook;
+        };
+
+        it('resolveItem: el eco solo del usuario no suma el precio dos veces', async () => {
+            const { result } = await renderResolved();
+
+            emitServer({ user: { moneySaved: 30, savedCount: 1 } });
+            expect(result.current.moneySaved).toBe(30);
+
+            emitServer({ items: [makeItem({ id: 'x', price: 20, status: 'saved', resolvedAt: 5 })] });
+            expect(result.current.moneySaved).toBe(30);
+            expect(result.current.items[0].status).toBe('saved');
+        });
+
+        it('resolveItem: el eco solo de deseos nunca muestra un total duplicado', async () => {
+            const { result } = await renderResolved();
+
+            emitServer({ items: [makeItem({ id: 'x', price: 20, status: 'saved', resolvedAt: 5 })] });
+            // Parpadeo breve aceptado: valor anterior del servidor, nunca uno inventado.
+            expect(result.current.moneySaved).toBe(10);
+            expect(result.current.items[0].status).toBe('saved');
+
+            emitServer({ user: { moneySaved: 30, savedCount: 1 } });
+            expect(result.current.moneySaved).toBe(30);
+        });
+
+        it('resolveItem: un eco que llega antes de que resuelva la transacción no duplica', async () => {
+            await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10, savedCount: 0 });
+            const tx = makeTransaction(makeItem({ id: 'x', price: 20 }), { moneySaved: 10, savedCount: 0, achievements: ['first_save'] });
+            let release: () => void = () => { };
+            const gate = new Promise<void>((resolve) => { release = resolve; });
+            firestore.runTransaction.mockImplementation(async (_db: unknown, fn: (t: unknown) => unknown) => {
+                const value = await fn(tx);
+                // El commit llega al listener del usuario antes de que resuelva runTransaction.
+                const [userListener] = mockListeners.slice(-3);
+                userListener({ exists: () => true, data: () => ({ moneySaved: 30, savedCount: 1 }) });
+                await gate;
+                return value;
+            });
+            const { result } = await renderStore();
+
+            let pending: Promise<void> = Promise.resolve();
+            await act(async () => {
+                pending = result.current.resolveItem('x', 'save');
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+            expect(result.current.syncStatus.pendingCount).toBe(1);
+            expect(result.current.moneySaved).toBe(30);
+
+            release();
+            await act(async () => {
+                await pending;
+            });
+            expect(result.current.syncStatus.pendingCount).toBe(0);
+            expect(result.current.moneySaved).toBe(30);
+        });
+
+        const renderAllocated = async () => {
+            await seedCache('test-user', { goals: [goalG], moneySaved: 100 });
+            const tx = makeAllocateTransaction(100);
+            firestore.runTransaction.mockImplementation(async (_db: unknown, fn: (t: unknown) => unknown) => fn(tx));
+            const hook = await renderStore();
+            await act(async () => {
+                await hook.result.current.allocateSavings('g', 30);
+            });
+            expect(tx.update).toHaveBeenCalled();
+            expect(hook.result.current.moneySaved).toBe(70);
+            expect(hook.result.current.goals[0].currentAmount).toBe(30);
+            return hook;
+        };
+
+        it('allocateSavings: el eco solo del usuario no resta dos veces', async () => {
+            const { result } = await renderAllocated();
+
+            emitServer({ user: { moneySaved: 70 } });
+            expect(result.current.moneySaved).toBe(70);
+            expect(result.current.goals[0].currentAmount).toBe(0);
+
+            emitServer({ goals: [{ ...goalG, currentAmount: 30 }] });
+            expect(result.current.moneySaved).toBe(70);
+            expect(result.current.goals[0].currentAmount).toBe(30);
+        });
+
+        it('allocateSavings: el eco solo de metas no suma dos veces a la meta', async () => {
+            const { result } = await renderAllocated();
+
+            emitServer({ goals: [{ ...goalG, currentAmount: 30 }] });
+            expect(result.current.goals[0].currentAmount).toBe(30);
+            expect(result.current.moneySaved).toBe(100);
+
+            emitServer({ user: { moneySaved: 70 } });
+            expect(result.current.moneySaved).toBe(70);
+            expect(result.current.goals[0].currentAmount).toBe(30);
+        });
+    });
+
+    it('no arma el reintento si el provider se desmonta con un pase en vuelo', async () => {
+        await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10 });
+        let release: () => void = () => { };
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        firestore.runTransaction.mockImplementation(async () => {
+            await gate;
+            throw { code: 'unavailable' };
+        });
+        const { result, unmount } = await renderStore();
+
+        let pending: Promise<void> = Promise.resolve();
+        await act(async () => {
+            pending = result.current.resolveItem('x', 'save');
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        unmount();
+
+        const timeoutSpy = jest.spyOn(global, 'setTimeout');
+        try {
+            release();
+            await act(async () => {
+                await pending;
+            });
+            expect(timeoutSpy.mock.calls.some(([, delay]) => delay === 15_000)).toBe(false);
+        } finally {
+            timeoutSpy.mockRestore();
+        }
     });
 
     it('la caché no cuenta como snapshot real para la migración de savedCount', async () => {
