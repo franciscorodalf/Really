@@ -214,7 +214,7 @@ export default function Index() {
                             <View style={[styles.defenseBarFill, { width: `${defenseRate}%`, backgroundColor: AppTheme.secondary }]} />
                         </View>
                         <ThemedText style={[styles.defenseSubtext, { color: AppTheme.subtext }]}>
-                            {Math.floor(defenseRate ?? 0)}% de tus deseos resistidos
+                            {Math.floor(Math.round((defenseRate ?? 0) * 100) / 100)}% de tus deseos resistidos
                         </ThemedText>
                     </View>
                 )}
