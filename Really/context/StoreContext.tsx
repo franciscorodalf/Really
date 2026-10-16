@@ -35,6 +35,7 @@ import {
     updateDoc,
     query,
     orderBy,
+    type SnapshotListenOptions,
 } from 'firebase/firestore';
 
 // Configure notifications only on native platforms
@@ -546,13 +547,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const session = sessionRef.current;
         const userDocRef = doc(db, 'users', uid);
 
+        // Último contenido aplicado por cada listener en esta suscripción. Con
+        // `includeMetadataChanges` también llegan eventos solo de metadatos (p. ej. el ack de una
+        // escritura cambia `hasPendingWrites`); si el contenido no cambió no son un eco nuevo y no
+        // deben contar como tal (quitarían antes de tiempo una operación confirmada).
+        const lastApplied: Record<Listener, string | null> = { user: null, items: null, goals: null };
+
         // Fusiona en la vista del servidor los campos que trae un snapshot real y guarda la caché.
         // Para no pisar la caché guardada con valores por defecto, solo se escribe cuando la vista
-        // ya parte de la caché local o cuando han respondido los tres listeners. (Un listener que
-        // arrancó sin red puede no volver a emitir si los datos del servidor coinciden con su
-        // snapshot vacío desde caché, así que no basta con esperar siempre a los tres.)
-        const applyServerPatch = (listener: Listener, patch: Partial<SyncView>) => {
-            if (sessionRef.current !== session) return;
+        // ya parte de la caché local o cuando han respondido los tres listeners.
+        // Devuelve false si el snapshot se ignoró.
+        const applyServerPatch = (listener: Listener, patch: Partial<SyncView>, contentKey: string): boolean => {
+            if (sessionRef.current !== session) return false;
+            if (lastApplied[listener] === contentKey) return false;
+            lastApplied[listener] = contentKey;
             const gen = { ...snapshotGenRef.current, [listener]: snapshotGenRef.current[listener] + 1 };
             snapshotGenRef.current = gen;
             const next = { ...serverViewRef.current, ...patch };
@@ -566,25 +574,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (inFlight && echoListeners(inFlight).includes(listener)) commitEchoedInFlight(inFlight.opId);
 
             if (cacheBaselineRef.current || (gen.user > 0 && gen.items > 0 && gen.goals > 0)) persist(() => saveCache(uid, next));
+            return true;
         };
 
         // Sin red, Firestore entrega snapshots desde su caché en memoria (vacía en un arranque en
-        // frío). No son datos reales del servidor: se ignoran para no pisar la caché local.
+        // frío). No son datos confirmados por el servidor: se ignoran para no pisar la caché local.
+        // Con `includeMetadataChanges` el SDK vuelve a entregar el conjunto completo cuando esos
+        // mismos documentos pasan a estar sincronizados (`fromCache: false`), así que no se pierde
+        // ningún cambio al reconectar.
         const isFromCache = (snap: { metadata?: { fromCache?: boolean } }) => snap.metadata?.fromCache === true;
+        const listenOptions: SnapshotListenOptions = { includeMetadataChanges: true };
 
         // Listen to user preferences (theme, stats)
-        const unsubscribeUser = onSnapshot(userDocRef, (docSnap) => {
+        const unsubscribeUser = onSnapshot(userDocRef, listenOptions, (docSnap) => {
             if (isFromCache(docSnap)) return;
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                applyServerPatch('user', {
+                const patch: Partial<SyncView> = {
                     moneySaved: data.moneySaved || 0,
                     moneySpent: data.moneySpent || 0,
                     theme: data.theme || 'light',
                     achievements: data.achievements || [],
                     savedCount: typeof data.savedCount === 'number' ? data.savedCount : null,
                     hourlyWage: typeof data.hourlyWage === 'number' ? data.hourlyWage : null,
-                });
+                };
+                if (!applyServerPatch('user', patch, JSON.stringify([true, patch, Boolean(data.supportId)]))) return;
 
                 // Ensure supportId is saved
                 if (!data.supportId) {
@@ -592,14 +606,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     updateDoc(userDocRef, { supportId });
                 }
             } else {
-                applyServerPatch('user', {
+                const patch: Partial<SyncView> = {
                     moneySaved: EMPTY_VIEW.moneySaved,
                     moneySpent: EMPTY_VIEW.moneySpent,
                     theme: EMPTY_VIEW.theme,
                     achievements: EMPTY_VIEW.achievements,
                     savedCount: EMPTY_VIEW.savedCount,
                     hourlyWage: EMPTY_VIEW.hourlyWage,
-                });
+                };
+                if (!applyServerPatch('user', patch, JSON.stringify([false, patch]))) return;
                 // Initialize user doc if not exists
                 const supportId = uid.slice(-6).toUpperCase();
                 setDoc(userDocRef, { moneySaved: 0, moneySpent: 0, theme: 'light', supportId }, { merge: true });
@@ -610,26 +625,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Listen to items subcollection
         const itemsCollection = collection(userDocRef, 'items');
         const q = query(itemsCollection, orderBy('createdAt', 'desc'));
-        const unsubscribeItems = onSnapshot(q, (snapshot) => {
+        const unsubscribeItems = onSnapshot(q, listenOptions, (snapshot) => {
             if (isFromCache(snapshot)) return;
             const loadedItems: Item[] = [];
             snapshot.forEach((doc) => {
                 loadedItems.push(doc.data() as Item);
             });
-            applyServerPatch('items', { items: loadedItems });
+            if (!applyServerPatch('items', { items: loadedItems }, JSON.stringify(loadedItems))) return;
             setHasItemsLoaded(true);
         });
 
         // Listen to goals subcollection
         const goalsCollection = collection(userDocRef, 'goals');
         const qGoals = query(goalsCollection, orderBy('createdAt', 'desc'));
-        const unsubscribeGoals = onSnapshot(qGoals, (snapshot) => {
+        const unsubscribeGoals = onSnapshot(qGoals, listenOptions, (snapshot) => {
             if (isFromCache(snapshot)) return;
             const loadedGoals: Goal[] = [];
             snapshot.forEach((doc) => {
                 loadedGoals.push(doc.data() as Goal);
             });
-            applyServerPatch('goals', { goals: loadedGoals });
+            applyServerPatch('goals', { goals: loadedGoals }, JSON.stringify(loadedGoals));
         });
 
         return () => {

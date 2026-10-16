@@ -18,13 +18,14 @@ jest.mock('firebase/auth', () => ({
     signOut: jest.fn(),
 }));
 
+// onSnapshot se llama como (ref, { includeMetadataChanges: true }, callback).
 // Las escrituras devuelven una promesa como el SDK real: el motor de sincronización
 // (services/syncEngine.ts) las envuelve en un plazo máximo y necesita poder esperarlas.
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
     setDoc: jest.fn(() => Promise.resolve()),
-    onSnapshot: jest.fn((ref, callback) => {
+    onSnapshot: jest.fn((ref, _options, callback) => {
         // Simulate empty data initially
         callback({ exists: () => false, data: () => ({}), forEach: () => { } });
         return jest.fn();
@@ -229,7 +230,7 @@ describe('StoreContext', () => {
 
     it('carga hourlyWage desde el documento de usuario', async () => {
         const { onSnapshot } = require('firebase/firestore');
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => true, data: () => ({ hourlyWage: 25 }), forEach: () => { } });
             return jest.fn();
         });
@@ -322,12 +323,12 @@ describe('StoreContext', () => {
         const { onSnapshot, runTransaction } = require('firebase/firestore');
 
         // 1ª llamada a onSnapshot = documento de usuario (valores por defecto)
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
         // 2ª llamada a onSnapshot = colección de items: 2 ahorros ya existentes
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             const mockItems = [
                 { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
                 { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
@@ -385,11 +386,11 @@ describe('StoreContext', () => {
     it('resolveItem con decisión "buy" nunca desbloquea logros de racha', async () => {
         const { onSnapshot, runTransaction } = require('firebase/firestore');
 
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             const mockItems = [
                 { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
                 { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
@@ -446,11 +447,11 @@ describe('StoreContext', () => {
     // Siembra el estado: 1ª llamada a onSnapshot = documento de usuario, 2ª = colección de items.
     const seedItems = (mockItems: any[]) => {
         const { onSnapshot } = require('firebase/firestore');
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({ exists: () => false, data: () => ({}), forEach: () => { } });
             return jest.fn();
         });
-        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+        onSnapshot.mockImplementationOnce((_ref: any, _options: any, callback: any) => {
             callback({
                 exists: () => true,
                 data: () => ({}),

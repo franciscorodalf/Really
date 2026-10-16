@@ -42,7 +42,7 @@ jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn((_db: unknown, ...segments: string[]) => ({ path: segments.join('/') })),
     setDoc: jest.fn(() => Promise.resolve()),
-    onSnapshot: jest.fn((_ref: unknown, callback: (snap: any) => void) => {
+    onSnapshot: jest.fn((_ref: unknown, _options: unknown, callback: (snap: any) => void) => {
         mockListeners.push(callback);
         return jest.fn();
     }),
@@ -118,8 +118,13 @@ const setOnline = async (rerender: (props?: unknown) => void, online: boolean) =
     await settle();
 };
 
-// Emite snapshots «reales» en los tres listeners (usuario, deseos, metas).
-const emitServer = (data: { user?: Record<string, unknown> | null; items?: unknown[]; goals?: unknown[] }) => {
+// Emite snapshots en los tres listeners (usuario, deseos, metas). Por defecto son «reales»
+// (`fromCache: false`); con `fromCache: true` simulan los que entrega el SDK sin red.
+const emitServer = (
+    data: { user?: Record<string, unknown> | null; items?: unknown[]; goals?: unknown[] },
+    options: { fromCache?: boolean } = {},
+) => {
+    const metadata = { fromCache: options.fromCache ?? false, hasPendingWrites: false };
     act(() => {
         const [userListener, itemsListener, goalsListener] = mockListeners.slice(-3);
         if (data.user !== undefined) {
@@ -127,6 +132,7 @@ const emitServer = (data: { user?: Record<string, unknown> | null; items?: unkno
                 exists: () => data.user !== null,
                 data: () => data.user ?? {},
                 forEach: () => { },
+                metadata,
             });
         }
         if (data.items !== undefined) {
@@ -134,6 +140,7 @@ const emitServer = (data: { user?: Record<string, unknown> | null; items?: unkno
                 exists: () => true,
                 data: () => ({}),
                 forEach: (fn: (doc: any) => void) => data.items!.forEach((d) => fn({ data: () => d })),
+                metadata,
             });
         }
         if (data.goals !== undefined) {
@@ -141,6 +148,7 @@ const emitServer = (data: { user?: Record<string, unknown> | null; items?: unkno
                 exists: () => true,
                 data: () => ({}),
                 forEach: (fn: (doc: any) => void) => data.goals!.forEach((d) => fn({ data: () => d })),
+                metadata,
             });
         }
     });
@@ -739,6 +747,65 @@ describe('StoreContext offline-first', () => {
         await settle();
 
         expect(firestore.setDoc).toHaveBeenCalledWith({ path: 'users/test-user' }, { savedCount: 3 }, { merge: true });
+    });
+
+    it('escucha los tres listeners con includeMetadataChanges', async () => {
+        await renderStore();
+
+        expect(firestore.onSnapshot).toHaveBeenCalledTimes(3);
+        for (const call of firestore.onSnapshot.mock.calls) {
+            expect(call[1]).toEqual({ includeMetadataChanges: true });
+            expect(call[2]).toEqual(expect.any(Function));
+        }
+    });
+
+    it('un snapshot desde caché seguido del sincronizado con los mismos documentos actualiza la vista y la caché', async () => {
+        mockedNetwork.mockReturnValue(false);
+        await seedCache('test-user', { items: [makeItem({ id: 'viejo' })], moneySaved: 40 });
+        const { result } = await renderStore();
+
+        const server = {
+            user: { moneySaved: 70, savedCount: 0 },
+            items: [makeItem({ id: 'nuevo' })],
+            goals: [],
+        };
+        // Al reconectar, el SDK entrega primero los documentos desde su caché…
+        emitServer(server, { fromCache: true });
+        await settle();
+        expect(result.current.items.map((i) => i.id)).toEqual(['viejo']);
+        expect(result.current.moneySaved).toBe(40);
+
+        // …y después, con los MISMOS documentos, el evento de metadatos «sincronizado».
+        emitServer(server, { fromCache: false });
+        await settle();
+
+        expect(result.current.items.map((i) => i.id)).toEqual(['nuevo']);
+        expect(result.current.moneySaved).toBe(70);
+        const cached = await readJson(cacheKey('test-user'));
+        expect(cached.items.map((i: { id: string }) => i.id)).toEqual(['nuevo']);
+        expect(cached.moneySaved).toBe(70);
+    });
+
+    it('un evento solo de metadatos (mismo contenido) no quita antes de tiempo una operación confirmada', async () => {
+        await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10, savedCount: 0 });
+        const tx = makeTransaction(makeItem({ id: 'x', price: 20 }), { moneySaved: 10, savedCount: 0, achievements: ['first_save'] });
+        firestore.runTransaction.mockImplementation(async (_db: unknown, fn: (t: unknown) => unknown) => fn(tx));
+        const { result } = await renderStore();
+        emitServer({ user: { moneySaved: 10, savedCount: 0 }, items: [makeItem({ id: 'x', price: 20 })], goals: [] });
+
+        await act(async () => {
+            await result.current.resolveItem('x', 'save');
+        });
+        await settle();
+        expect(result.current.moneySaved).toBe(30);
+
+        // p. ej. el ack de una escritura anterior: cambia `hasPendingWrites`, no los datos.
+        emitServer({ user: { moneySaved: 10, savedCount: 0 }, items: [makeItem({ id: 'x', price: 20 })] });
+        expect(result.current.moneySaved).toBe(30);
+        expect(result.current.items[0].status).toBe('saved');
+
+        emitServer({ user: { moneySaved: 30, savedCount: 1 } });
+        expect(result.current.moneySaved).toBe(30);
     });
 
     it('ignora los snapshots servidos desde la caché de Firestore sin red', async () => {

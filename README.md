@@ -98,7 +98,7 @@ La app sigue funcionando sin red: las acciones del usuario se aplican al instant
 - Las escrituras son *at-least-once*: una caída entre el commit de `allocateSavings` y el borrado de la operación de la cola podría reproducirla dos veces.
 - La caché de un usuario permanece en el dispositivo tras cerrar sesión.
 - No hay resolución multi-dispositivo más allá de «gana el servidor».
-- Un listener que solo emite instantáneas de caché puede mantener datos obsoletos hasta su siguiente cambio (mejora futura: `includeMetadataChanges`).
+- Las instantáneas que Firestore sirve desde su caché sin red (`fromCache`) se ignoran para no pisar la caché local; los listeners usan `includeMetadataChanges`, así que al reconectar el SDK vuelve a entregar los mismos documentos ya sincronizados y la vista se pone al día. El SDK web de Firestore en React Native no tiene monitor de conectividad propio, por lo que puede tardar unos segundos en reconectar después de que vuelva la red.
 - El orden de la cola usa el reloj del dispositivo (`createdAt`), por lo que un reloj desajustado puede alterar el orden relativo de las operaciones.
 
 ## 📂 Estructura del Proyecto
