@@ -18,17 +18,19 @@ jest.mock('firebase/auth', () => ({
     signOut: jest.fn(),
 }));
 
+// Las escrituras devuelven una promesa como el SDK real: el motor de sincronización
+// (services/syncEngine.ts) las envuelve en un plazo máximo y necesita poder esperarlas.
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn(() => ({ id: 'mock-doc-ref' })),
-    setDoc: jest.fn(),
+    setDoc: jest.fn(() => Promise.resolve()),
     onSnapshot: jest.fn((ref, callback) => {
         // Simulate empty data initially
         callback({ exists: () => false, data: () => ({}), forEach: () => { } });
         return jest.fn();
     }),
-    updateDoc: jest.fn(),
-    deleteDoc: jest.fn(),
+    updateDoc: jest.fn(() => Promise.resolve()),
+    deleteDoc: jest.fn(() => Promise.resolve()),
     query: jest.fn(),
     orderBy: jest.fn(),
     getDoc: jest.fn(),
