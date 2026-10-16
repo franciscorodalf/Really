@@ -210,7 +210,7 @@ export default function Index() {
                                 </View>
                             )}
                         </View>
-                        <View style={[styles.defenseBarBg, { backgroundColor: AppTheme.border }]}>
+                        <View style={[styles.defenseBarBg, { backgroundColor: 'rgba(128,128,128,0.25)' }]}>
                             <View style={[styles.defenseBarFill, { width: `${defenseRate}%`, backgroundColor: AppTheme.secondary }]} />
                         </View>
                         <ThemedText style={[styles.defenseSubtext, { color: AppTheme.subtext }]}>
