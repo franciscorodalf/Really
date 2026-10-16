@@ -979,3 +979,31 @@ describe('StoreContext offline-first', () => {
         expect(firestore.setDoc).not.toHaveBeenCalled();
     });
 });
+
+describe('cambio de sesión con una operación en vuelo', () => {
+    it('la cola de la sesión nueva se sincroniza cuando termina el pase de la sesión anterior', async () => {
+        await seedCache('test-user', { items: [makeItem({ id: 'x', price: 20 })], moneySaved: 10 });
+        const otherItem = makeItem({ id: 'other', name: 'DeOtro' });
+        await seedQueue('other-user', [{ type: 'addItem', item: otherItem, opId: 'op-other', createdAt: 5 } as QueuedOp]);
+        let release: () => void = () => { };
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        firestore.runTransaction.mockImplementation(async () => {
+            await gate;
+            throw { code: 'permission-denied' };
+        });
+        const { result } = await renderStore();
+        await act(async () => { await result.current.resolveItem('x', 'save'); });
+        await settle();
+
+        await act(async () => { mockAuth.callback?.(null); });
+        await act(async () => { mockAuth.callback?.({ uid: 'other-user', email: 'o@example.com' }); });
+        await settle();
+        release();
+        await settle();
+        await settle();
+
+        const calls = firestore.setDoc.mock.calls.filter(([ref]: [{ path: string }]) => ref.path.includes('other-user/items/'));
+        expect(calls.length).toBe(1);
+        expect(result.current.syncStatus.pendingCount).toBe(0);
+    });
+});

@@ -202,6 +202,15 @@ const cancelNotification = async (notificationId: string) => {
     }
 };
 
+// Clave de contenido independiente del orden de los campos: el SDK puede devolver un documento
+// confirmado con los campos en otro orden que el escrito en local, y eso no es un cambio real.
+const stableKey = (value: unknown): string =>
+    JSON.stringify(value, (_key, val) =>
+        val && typeof val === 'object' && !Array.isArray(val)
+            ? Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+            : val
+    );
+
 export const useStore = () => {
     const context = useContext(StoreContext);
     if (!context) {
@@ -439,10 +448,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const run = (async () => {
             try {
                 let result: PassResult;
+                let sessionChanged: boolean;
                 do {
                     flushAgainRef.current = false;
+                    const passSession = sessionRef.current;
                     result = await runPass();
-                } while (flushAgainRef.current && result === 'drained');
+                    // Si la sesión cambió durante el pase, el resultado 'offline' (p. ej. por un
+                    // rechazo convertido en transitorio) no describe la cola de la sesión nueva: hay
+                    // que repetir para no dejarla sin sincronizar.
+                    sessionChanged = sessionRef.current !== passSession;
+                } while (flushAgainRef.current && (result === 'drained' || sessionChanged));
                 flushAgainRef.current = false;
             } finally {
                 flushPromiseRef.current = null;
@@ -583,7 +598,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     savedCount: typeof data.savedCount === 'number' ? data.savedCount : null,
                     hourlyWage: typeof data.hourlyWage === 'number' ? data.hourlyWage : null,
                 };
-                if (!applyServerPatch('user', patch, JSON.stringify([true, patch, Boolean(data.supportId)]))) return;
+                if (!applyServerPatch('user', patch, stableKey([true, patch, Boolean(data.supportId)]))) return;
 
                 // Ensure supportId is saved
                 if (!data.supportId) {
@@ -599,7 +614,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     savedCount: EMPTY_VIEW.savedCount,
                     hourlyWage: EMPTY_VIEW.hourlyWage,
                 };
-                if (!applyServerPatch('user', patch, JSON.stringify([false, patch]))) return;
+                if (!applyServerPatch('user', patch, stableKey([false, patch]))) return;
                 // Initialize user doc if not exists
                 const supportId = uid.slice(-6).toUpperCase();
                 setDoc(userDocRef, { moneySaved: 0, moneySpent: 0, theme: 'light', supportId }, { merge: true });
@@ -616,7 +631,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             snapshot.forEach((doc) => {
                 loadedItems.push(doc.data() as Item);
             });
-            if (!applyServerPatch('items', { items: loadedItems }, JSON.stringify(loadedItems))) return;
+            if (!applyServerPatch('items', { items: loadedItems }, stableKey(loadedItems))) return;
             setHasItemsLoaded(true);
         });
 
@@ -629,7 +644,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             snapshot.forEach((doc) => {
                 loadedGoals.push(doc.data() as Goal);
             });
-            applyServerPatch('goals', { goals: loadedGoals }, JSON.stringify(loadedGoals));
+            applyServerPatch('goals', { goals: loadedGoals }, stableKey(loadedGoals));
         });
 
         return () => {
