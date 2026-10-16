@@ -10,9 +10,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../constants/Colors';
 import { ThemedText } from '../components/themed-text';
 import { LinearGradient } from 'expo-linear-gradient';
+import { calculateDefenseRate, computeCurrentStreak } from '../utils/gamificationStats';
 import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
 
 const ACHIEVEMENT_TROPHY_DURATION_MS = 4000;
+const MIN_RESOLVED_ITEMS_FOR_DEFENSE_RATE = 5;
 
 export default function Index() {
     const router = useRouter();
@@ -94,6 +96,14 @@ export default function Index() {
         (item) => item.status === 'waiting' && item.unlockAt <= now
     ), [items, now]);
 
+    const resolvedItemsCount = useMemo(
+        () => items.filter((item) => item.status === 'saved' || item.status === 'bought').length,
+        [items]
+    );
+    const defenseRate = useMemo(() => calculateDefenseRate(items), [items]);
+    const currentStreak = useMemo(() => computeCurrentStreak(items), [items]);
+    const showDefenseCard = resolvedItemsCount >= MIN_RESOLVED_ITEMS_FOR_DEFENSE_RATE && defenseRate !== null;
+
     const isDark = theme === 'dark';
     const bg = isDark ? '#000' : '#f8f9fa';
     const text = isDark ? '#fff' : '#000';
@@ -110,6 +120,7 @@ export default function Index() {
     if (!user) return null;
 
     const AppTheme = Colors[isDark ? 'dark' : 'light'];
+    const streakColor = isDark ? '#FF7675' : '#C0392B';
 
     return (
         <View style={[styles.container, { paddingTop: insets.top, backgroundColor: AppTheme.background }]}>
@@ -184,6 +195,29 @@ export default function Index() {
                         </LinearGradient>
                     </TouchableOpacity>
                 </View>
+
+                {showDefenseCard && (
+                    <View style={[styles.defenseCard, { backgroundColor: AppTheme.surface }]}>
+                        <View style={styles.defenseHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Ionicons name="shield-checkmark-outline" size={18} color={AppTheme.secondary} />
+                                <ThemedText type="defaultSemiBold" style={{ color: AppTheme.text }}>Tasa de Resistencia</ThemedText>
+                            </View>
+                            {currentStreak > 0 && (
+                                <View style={styles.streakBadge}>
+                                    <Ionicons name="flame" size={14} color={streakColor} />
+                                    <ThemedText style={[styles.streakText, { color: streakColor }]}>{currentStreak}</ThemedText>
+                                </View>
+                            )}
+                        </View>
+                        <View style={[styles.defenseBarBg, { backgroundColor: 'rgba(128,128,128,0.25)' }]}>
+                            <View style={[styles.defenseBarFill, { width: `${defenseRate}%`, backgroundColor: AppTheme.secondary }]} />
+                        </View>
+                        <ThemedText style={[styles.defenseSubtext, { color: AppTheme.subtext }]}>
+                            {Math.floor(Math.round((defenseRate ?? 0) * 100) / 100)}% de tus deseos resistidos
+                        </ThemedText>
+                    </View>
+                )}
 
                 {readyItems.length > 0 && (
                     <View style={styles.section}>
@@ -263,6 +297,45 @@ const styles = StyleSheet.create({
     statsContainer: {
         flexDirection: 'row',
         marginBottom: 32,
+    },
+    defenseCard: {
+        borderRadius: 20,
+        padding: 16,
+        marginBottom: 24,
+    },
+    defenseHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    streakBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(255,118,117,0.15)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 100,
+    },
+    streakText: {
+        fontSize: 13,
+        lineHeight: 16,
+        fontWeight: '700',
+    },
+    defenseBarBg: {
+        height: 10,
+        borderRadius: 5,
+        overflow: 'hidden',
+        marginBottom: 8,
+    },
+    defenseBarFill: {
+        height: '100%',
+        borderRadius: 5,
+    },
+    defenseSubtext: {
+        fontSize: 12,
+        lineHeight: 16,
     },
     summaryCard: {
         borderRadius: 24,

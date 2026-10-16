@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 let Notifications: any;
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -14,6 +14,7 @@ if (Platform.OS !== 'android' || !isExpoGo) {
 import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import { auth, db } from '../firebaseConfig';
+import { computeCurrentStreak } from '../utils/gamificationStats';
 import {
     onAuthStateChanged,
     User,
@@ -92,6 +93,9 @@ export const ACHIEVEMENTS: Achievement[] = [
     { id: 'saver_2000', title: 'Experto', description: 'Has ahorrado más de $2000', icon: 'ribbon' },
     { id: 'saver_5000', title: 'Magnate', description: 'Has ahorrado más de $5000', icon: 'diamond' },
     { id: 'saver_10000', title: 'Leyenda', description: 'Has ahorrado más de $10000', icon: 'ribbon' },
+    { id: 'streak_3', title: 'Racha de Defensa', description: 'Resististe 3 compras impulsivas seguidas', icon: 'flame-outline' },
+    { id: 'streak_5', title: 'Disciplina de Hierro', description: 'Resististe 5 compras impulsivas seguidas', icon: 'flame' },
+    { id: 'streak_10', title: 'Inquebrantable', description: 'Resististe 10 compras impulsivas seguidas', icon: 'shield-checkmark' },
 ];
 
 export type Theme = 'light' | 'dark';
@@ -158,6 +162,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [notice, setNotice] = useState<Notice | null>(null);
     const [hasOfflineNotice, setHasOfflineNotice] = useState(false);
     const [newAchievementSignal, setNewAchievementSignal] = useState(0);
+
+    // Refs para calcular la racha con datos frescos: el estado `items` capturado en el
+    // closure puede estar desfasado si hay resoluciones en vuelo (la transacción no
+    // actualiza el estado local hasta que el servidor confirma) o si se reintenta una
+    // resolución antigua.
+    const itemsRef = useRef<Item[]>([]);
+    const pendingResolutionsRef = useRef<Map<string, { status: 'saved' | 'bought'; resolvedAt: number }>>(new Map());
+
+    useEffect(() => {
+        itemsRef.current = items;
+    }, [items]);
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -407,6 +422,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const userRef = doc(db, 'users', user.uid);
         const resolvedAt = Date.now();
 
+        // Racha previa: items actuales + resoluciones aún en vuelo (se calcula ANTES de
+        // registrar la entrada de esta llamada, que solo sirve a llamadas concurrentes posteriores).
+        const pendingResolutions = pendingResolutionsRef.current;
+        const itemsForStreak = itemsRef.current.map((item) => {
+            const pending = pendingResolutions.get(item.id);
+            return pending ? { ...item, status: pending.status, resolvedAt: pending.resolvedAt } : item;
+        });
+        const streakBeforeResolution = computeCurrentStreak(itemsForStreak);
+        const ownPending = { status: decision === 'save' ? ('saved' as const) : ('bought' as const), resolvedAt };
+        pendingResolutions.set(id, ownPending);
+
         try {
             const result = await runTransaction(db, async (transaction) => {
                 const itemSnap = await transaction.get(itemRef);
@@ -429,6 +455,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if (decision === 'save') {
                     const newSaved = currentSaved + item.price;
                     const newSavedCount = currentSavedCount + 1;
+                    const newStreak = streakBeforeResolution + 1;
 
                     if (!newAchievements.includes('first_save')) { newAchievements.push('first_save'); newlyEarned.push('Primer Ahorro'); }
                     if (newSavedCount >= 10 && !newAchievements.includes('saver_10')) { newAchievements.push('saver_10'); newlyEarned.push('Coleccionista'); }
@@ -439,6 +466,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     if (newSaved >= 2000 && !newAchievements.includes('saver_2000')) { newAchievements.push('saver_2000'); newlyEarned.push('Experto'); }
                     if (newSaved >= 5000 && !newAchievements.includes('saver_5000')) { newAchievements.push('saver_5000'); newlyEarned.push('Magnate'); }
                     if (newSaved >= 10000 && !newAchievements.includes('saver_10000')) { newAchievements.push('saver_10000'); newlyEarned.push('Leyenda'); }
+
+                    if (newStreak >= 3 && !newAchievements.includes('streak_3')) { newAchievements.push('streak_3'); newlyEarned.push('Racha de Defensa'); }
+                    if (newStreak >= 5 && !newAchievements.includes('streak_5')) { newAchievements.push('streak_5'); newlyEarned.push('Disciplina de Hierro'); }
+                    if (newStreak >= 10 && !newAchievements.includes('streak_10')) { newAchievements.push('streak_10'); newlyEarned.push('Inquebrantable'); }
 
                     transaction.update(itemRef, { status: 'saved', resolvedAt });
                     transaction.set(userRef, {
@@ -484,6 +515,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 onAction: () => resolveItem(id, decision),
                 autoHide: false,
             });
+        } finally {
+            if (pendingResolutions.get(id) === ownPending) {
+                pendingResolutions.delete(id);
+            }
         }
     };
 

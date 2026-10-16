@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderHook, act } from '@testing-library/react-native';
-import { StoreProvider, useStore } from '../StoreContext';
+import { StoreProvider, useStore, ACHIEVEMENTS } from '../StoreContext';
 
 // Mock Firebase
 jest.mock('../../firebaseConfig', () => ({
@@ -300,5 +300,274 @@ describe('StoreContext', () => {
 
         expect(updateDoc).not.toHaveBeenCalled();
         expect(result.current.notice?.type).toBe('error');
+    });
+
+    it('ACHIEVEMENTS incluye los nuevos logros de racha', () => {
+        const ids = ACHIEVEMENTS.map((a) => a.id);
+        expect(ids).toEqual(expect.arrayContaining(['streak_3', 'streak_5', 'streak_10']));
+
+        const streak3 = ACHIEVEMENTS.find((a) => a.id === 'streak_3');
+        expect(streak3).toMatchObject({ title: 'Racha de Defensa', icon: 'flame-outline' });
+
+        const streak5 = ACHIEVEMENTS.find((a) => a.id === 'streak_5');
+        expect(streak5).toMatchObject({ title: 'Disciplina de Hierro', icon: 'flame' });
+
+        const streak10 = ACHIEVEMENTS.find((a) => a.id === 'streak_10');
+        expect(streak10).toMatchObject({ title: 'Inquebrantable', icon: 'shield-checkmark' });
+    });
+
+    it('resolveItem desbloquea el logro de racha al encadenar 3 ahorros seguidos', async () => {
+        const { onSnapshot, runTransaction } = require('firebase/firestore');
+
+        // 1ª llamada a onSnapshot = documento de usuario (valores por defecto)
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({ exists: () => false, data: () => ({}), forEach: () => { } });
+            return jest.fn();
+        });
+        // 2ª llamada a onSnapshot = colección de items: 2 ahorros ya existentes
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            const mockItems = [
+                { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
+                { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
+            ];
+            callback({
+                exists: () => true,
+                data: () => ({}),
+                forEach: (fn: (doc: any) => void) => mockItems.forEach((data) => fn({ data: () => data })),
+            });
+            return jest.fn();
+        });
+
+        const itemData = {
+            id: 'item-3',
+            name: 'Test',
+            price: 5,
+            createdAt: 4000,
+            unlockAt: 4000,
+            status: 'waiting',
+        };
+        const userData = { moneySaved: 20, moneySpent: 0, savedCount: 2, achievements: ['first_save'] };
+
+        const transaction = {
+            get: jest.fn()
+                .mockResolvedValueOnce({ exists: () => true, data: () => itemData })
+                .mockResolvedValueOnce({ exists: () => true, data: () => userData }),
+            update: jest.fn(),
+            set: jest.fn(),
+        };
+
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => {
+            return updateFn(transaction);
+        });
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.resolveItem('item-3', 'save');
+        });
+
+        expect(transaction.set).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                achievements: expect.arrayContaining(['streak_3']),
+            }),
+            { merge: true }
+        );
+    });
+
+    it('resolveItem con decisión "buy" nunca desbloquea logros de racha', async () => {
+        const { onSnapshot, runTransaction } = require('firebase/firestore');
+
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({ exists: () => false, data: () => ({}), forEach: () => { } });
+            return jest.fn();
+        });
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            const mockItems = [
+                { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
+                { id: 'b', name: 'B', price: 10, createdAt: 1500, unlockAt: 1500, status: 'saved', resolvedAt: 3000 },
+                { id: 'c', name: 'C', price: 10, createdAt: 1700, unlockAt: 1700, status: 'saved', resolvedAt: 3500 },
+            ];
+            callback({
+                exists: () => true,
+                data: () => ({}),
+                forEach: (fn: (doc: any) => void) => mockItems.forEach((data) => fn({ data: () => data })),
+            });
+            return jest.fn();
+        });
+
+        const itemData = {
+            id: 'item-4',
+            name: 'Test',
+            price: 5,
+            createdAt: 4000,
+            unlockAt: 4000,
+            status: 'waiting',
+        };
+        const userData = { moneySaved: 30, moneySpent: 0, savedCount: 3, achievements: ['first_save'] };
+
+        const transaction = {
+            get: jest.fn()
+                .mockResolvedValueOnce({ exists: () => true, data: () => itemData })
+                .mockResolvedValueOnce({ exists: () => true, data: () => userData }),
+            update: jest.fn(),
+            set: jest.fn(),
+        };
+
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => updateFn(transaction));
+
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+        const { result } = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+
+        await act(async () => {
+            await result.current.resolveItem('item-4', 'buy');
+        });
+
+        expect(transaction.set).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ moneySpent: 5 }),
+            { merge: true }
+        );
+        expect(transaction.set).toHaveBeenCalledTimes(1);
+        const setCallArgs = transaction.set.mock.calls[0][1];
+        expect(setCallArgs.achievements).toBeUndefined();
+    });
+
+    // Siembra el estado: 1ª llamada a onSnapshot = documento de usuario, 2ª = colección de items.
+    const seedItems = (mockItems: any[]) => {
+        const { onSnapshot } = require('firebase/firestore');
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({ exists: () => false, data: () => ({}), forEach: () => { } });
+            return jest.fn();
+        });
+        onSnapshot.mockImplementationOnce((_ref: any, callback: any) => {
+            callback({
+                exists: () => true,
+                data: () => ({}),
+                forEach: (fn: (doc: any) => void) => mockItems.forEach((data) => fn({ data: () => data })),
+            });
+            return jest.fn();
+        });
+    };
+
+    const makeTransaction = (itemData: any, userData: any) => ({
+        get: jest.fn()
+            .mockResolvedValueOnce({ exists: () => true, data: () => itemData })
+            .mockResolvedValueOnce({ exists: () => true, data: () => userData }),
+        update: jest.fn(),
+        set: jest.fn(),
+    });
+
+    const renderStore = async () => {
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+            <StoreProvider>{children}</StoreProvider>
+        );
+        const hook = renderHook(() => useStore(), { wrapper });
+        await act(async () => { });
+        return hook;
+    };
+
+    it('la racha no se deriva de savedCount: una compra reciente la rompe aunque savedCount sea 3', async () => {
+        const { runTransaction } = require('firebase/firestore');
+
+        seedItems([
+            { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
+            { id: 'b', name: 'B', price: 10, createdAt: 1100, unlockAt: 1100, status: 'saved', resolvedAt: 3000 },
+            { id: 'c', name: 'C', price: 10, createdAt: 1200, unlockAt: 1200, status: 'saved', resolvedAt: 4000 },
+            { id: 'd', name: 'D', price: 10, createdAt: 1300, unlockAt: 1300, status: 'bought', resolvedAt: 5000 },
+        ]);
+
+        const itemData = { id: 'item-5', name: 'Test', price: 5, createdAt: 6000, unlockAt: 6000, status: 'waiting' };
+        const userData = { moneySaved: 30, moneySpent: 10, savedCount: 3, achievements: ['first_save'] };
+        const transaction = makeTransaction(itemData, userData);
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => updateFn(transaction));
+
+        const { result } = await renderStore();
+        await act(async () => {
+            await result.current.resolveItem('item-5', 'save');
+        });
+
+        expect(transaction.set).toHaveBeenCalledTimes(1);
+        const setCallArgs = transaction.set.mock.calls[0][1];
+        expect(setCallArgs.savedCount).toBe(4);
+        expect(setCallArgs.achievements).not.toContain('streak_3');
+    });
+
+    it('otorga streak_3, streak_5 y streak_10 de golpe (sin duplicados) al ponerse al día con 9 ahorros seguidos', async () => {
+        const { runTransaction } = require('firebase/firestore');
+
+        seedItems(
+            Array.from({ length: 9 }, (_, i) => ({
+                id: `s${i}`, name: `S${i}`, price: 1, createdAt: 1000 + i, unlockAt: 1000 + i, status: 'saved', resolvedAt: 2000 + i,
+            }))
+        );
+
+        const itemData = { id: 'item-10', name: 'Test', price: 1, createdAt: 9000, unlockAt: 9000, status: 'waiting' };
+        const userData = { moneySaved: 9, moneySpent: 0, savedCount: 9, achievements: ['first_save'] };
+        const transaction = makeTransaction(itemData, userData);
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => updateFn(transaction));
+
+        const { result } = await renderStore();
+        await act(async () => {
+            await result.current.resolveItem('item-10', 'save');
+        });
+
+        expect(transaction.set).toHaveBeenCalledTimes(1);
+        const achievements: string[] = transaction.set.mock.calls[0][1].achievements;
+        expect(achievements).toEqual(expect.arrayContaining(['first_save', 'streak_3', 'streak_5', 'streak_10']));
+        expect(new Set(achievements).size).toBe(achievements.length);
+    });
+
+    it('resoluciones simultáneas: una compra en vuelo rompe la racha antes de contar el siguiente ahorro', async () => {
+        const { runTransaction } = require('firebase/firestore');
+
+        seedItems([
+            { id: 'a', name: 'A', price: 10, createdAt: 1000, unlockAt: 1000, status: 'saved', resolvedAt: 2000 },
+            { id: 'b', name: 'B', price: 10, createdAt: 1100, unlockAt: 1100, status: 'saved', resolvedAt: 3000 },
+            { id: 'x', name: 'X', price: 10, createdAt: 1200, unlockAt: 1200, status: 'waiting' },
+            { id: 'y', name: 'Y', price: 10, createdAt: 1300, unlockAt: 1300, status: 'waiting' },
+        ]);
+
+        const txX = makeTransaction({ id: 'x', name: 'X', price: 10, createdAt: 1200, unlockAt: 1200, status: 'waiting' }, { moneySaved: 20, moneySpent: 0, savedCount: 2, achievements: ['first_save'] });
+        const txY = makeTransaction({ id: 'y', name: 'Y', price: 10, createdAt: 1300, unlockAt: 1300, status: 'waiting' }, { moneySaved: 20, moneySpent: 10, savedCount: 2, achievements: ['first_save'] });
+
+        // La transacción de X queda pendiente hasta que se libere; la de Y se ejecuta de inmediato.
+        let releaseX: () => void = () => { };
+        const gateX = new Promise<void>((resolve) => { releaseX = resolve; });
+        let call = 0;
+        runTransaction.mockImplementation(async (_db: any, updateFn: any) => {
+            call += 1;
+            if (call === 1) {
+                await gateX;
+                return updateFn(txX);
+            }
+            return updateFn(txY);
+        });
+
+        const { result } = await renderStore();
+
+        await act(async () => {
+            const both = Promise.all([
+                result.current.resolveItem('x', 'buy'),
+                result.current.resolveItem('y', 'save'),
+            ]);
+            releaseX();
+            await both;
+        });
+
+        expect(call).toBe(2);
+        expect(txX.set).toHaveBeenCalledWith(expect.anything(), { moneySpent: 10 }, { merge: true });
+        expect(txY.set).toHaveBeenCalledTimes(1);
+        const setCallArgs = txY.set.mock.calls[0][1];
+        expect(setCallArgs.savedCount).toBe(3);
+        expect(setCallArgs.achievements).not.toContain('streak_3');
     });
 });
