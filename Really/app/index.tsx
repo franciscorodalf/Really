@@ -4,6 +4,7 @@ import { useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '../context/StoreContext';
 import { ItemCard } from '../components/ItemCard';
+import SyncStatus from '../components/SyncStatus';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -155,6 +156,8 @@ export default function Index() {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                <SyncStatus />
 
                 <View style={styles.statsContainer}>
                     <TouchableOpacity

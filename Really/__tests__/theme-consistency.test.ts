@@ -11,6 +11,7 @@ const FILES_THAT_MUST_NOT_USE_OS_COLOR_SCHEME = [
     'components/ThemedButton.tsx',
     'components/ItemCard.tsx',
     'components/NoticeBanner.tsx',
+    'components/SyncStatus.tsx',
     'components/TrendCharts.tsx',
 ];
 
